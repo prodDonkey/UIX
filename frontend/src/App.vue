@@ -1,7 +1,7 @@
 <template>
   <el-container class="layout">
     <el-header class="header">
-      <div class="title">YAML Script Platform</div>
+      <div class="title">UI自动化脚本</div>
       <el-button type="primary" plain @click="goScripts">脚本列表</el-button>
     </el-header>
     <el-main class="main">

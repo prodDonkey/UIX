@@ -10,7 +10,7 @@
     <el-table :data="store.scripts" v-loading="store.loading" row-key="id">
       <el-table-column prop="name" label="名称" min-width="180" />
       <el-table-column prop="source_type" label="来源" width="120" />
-      <el-table-column prop="updated_at" label="更新时间" min-width="180" />
+      <el-table-column prop="updated_at" label="更新时间" min-width="180" :formatter="formatTime" />
       <el-table-column label="操作" width="280" fixed="right">
         <template #default="{ row }">
           <el-button size="small" @click="goEdit(row.id)">编辑</el-button>
@@ -51,6 +51,15 @@ async function createScript() {
 
 function goEdit(id: number) {
   router.push(`/scripts/${id}`);
+}
+
+function formatTime(_: unknown, __: unknown, value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(
+    date.getMinutes()
+  )}:${pad(date.getSeconds())}`;
 }
 
 async function copyScript(id: number) {
