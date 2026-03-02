@@ -4,8 +4,10 @@ from datetime import datetime
 import os
 from pathlib import Path
 import shlex
+import signal
 import subprocess
 import threading
+import time
 from typing import Final
 
 from sqlalchemy import select
@@ -48,16 +50,19 @@ def cancel_run(db: Session, run_id: int) -> Run | None:
     if not run:
         return None
 
-    with _ACTIVE_LOCK:
-        proc = _ACTIVE_PROCESSES.get(run_id)
-    if proc and proc.poll() is None:
-        proc.terminate()
+    # Idempotent cancel for queued/running tasks.
+    if run.status in ("queued", "running"):
         run.status = "cancelled"
         run.ended_at = datetime.utcnow()
         if run.started_at:
             run.duration_ms = int((run.ended_at - run.started_at).total_seconds() * 1000)
         db.commit()
         db.refresh(run)
+
+    with _ACTIVE_LOCK:
+        proc = _ACTIVE_PROCESSES.get(run_id)
+    if proc and proc.poll() is None:
+        _terminate_process_tree(proc)
     return run
 
 
@@ -66,6 +71,8 @@ def _execute_run(run_id: int) -> None:
     try:
         run = db.get(Run, run_id)
         if not run:
+            return
+        if run.status == "cancelled":
             return
         script = db.get(Script, run.script_id)
         if not script:
@@ -87,6 +94,9 @@ def _execute_run(run_id: int) -> None:
         run.started_at = datetime.utcnow()
         run.log_path = str(log_path.resolve())
         db.commit()
+        db.refresh(run)
+        if run.status == "cancelled":
+            return
 
         command = shlex.split(settings.run_command_prefix) + [str(yaml_path.resolve())]
         proc = subprocess.Popen(
@@ -95,6 +105,7 @@ def _execute_run(run_id: int) -> None:
             stderr=subprocess.STDOUT,
             text=True,
             cwd=str(Path.cwd()),
+            start_new_session=True,
         )
         with _ACTIVE_LOCK:
             _ACTIVE_PROCESSES[run.id] = proc
@@ -165,3 +176,18 @@ def get_report_path(run: Run) -> str | None:
         return str(report_path.resolve())
     return run.report_path
 
+
+def _terminate_process_tree(proc: subprocess.Popen[str]) -> None:
+    try:
+        pgid = os.getpgid(proc.pid)
+        os.killpg(pgid, signal.SIGTERM)
+        for _ in range(20):
+            if proc.poll() is not None:
+                return
+            time.sleep(0.1)
+        os.killpg(pgid, signal.SIGKILL)
+    except Exception:  # noqa: BLE001
+        try:
+            proc.terminate()
+        except Exception:  # noqa: BLE001
+            return
