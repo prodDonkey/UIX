@@ -58,6 +58,11 @@ const validateMessage = ref('');
 const validateOk = ref(false);
 
 onMounted(async () => {
+  if (Number.isNaN(scriptId.value) || scriptId.value <= 0) {
+    await router.replace({ name: 'scripts-list' });
+    return;
+  }
+
   const detail = await scriptApi.detail(scriptId.value);
   name.value = detail.name;
   sourceType.value = detail.source_type;
@@ -81,8 +86,8 @@ async function validate() {
     : `校验失败：${result.message ?? 'unknown error'}${result.line ? ` (line ${result.line})` : ''}`;
 }
 
-function goBack() {
-  router.push('/scripts');
+async function goBack() {
+  await router.replace({ name: 'scripts-list' });
 }
 </script>
 

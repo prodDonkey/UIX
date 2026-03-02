@@ -8,8 +8,8 @@ export const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/', redirect: '/scripts' },
-    { path: '/scripts', component: ScriptList },
-    { path: '/scripts/:id', component: ScriptEditor },
-    { path: '/run/:id', component: RunDetail },
+    { path: '/scripts', name: 'scripts-list', component: ScriptList },
+    { path: '/scripts/:id(\\d+)', name: 'script-editor', component: ScriptEditor },
+    { path: '/run/:id', name: 'run-detail', component: RunDetail },
   ],
 });

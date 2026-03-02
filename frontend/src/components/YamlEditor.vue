@@ -6,7 +6,6 @@
 
 <script setup lang="ts">
 import * as monaco from 'monaco-editor';
-import { configureMonacoYaml } from 'monaco-yaml';
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
 const props = defineProps<{ modelValue: string }>();
@@ -14,15 +13,9 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>();
 
 const editorRef = ref<HTMLElement | null>(null);
 let editor: monaco.editor.IStandaloneCodeEditor | undefined;
-let disposeYaml: (() => void) | undefined;
 let isUpdatingFromParent = false;
 
 onMounted(() => {
-  disposeYaml = configureMonacoYaml(monaco, {
-    enableSchemaRequest: false,
-    validate: true,
-  });
-
   editor = monaco.editor.create(editorRef.value as HTMLElement, {
     value: props.modelValue,
     language: 'yaml',
@@ -50,7 +43,6 @@ watch(
 
 onBeforeUnmount(() => {
   editor?.dispose();
-  disposeYaml?.();
 });
 </script>
 

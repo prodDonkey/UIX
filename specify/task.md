@@ -10,18 +10,24 @@
 
 ### M1（第 1 周）：脚本管理 + YAML 编辑与校验
 
+当前进展：
+1. 已完成前后端工程初始化（Vue3/Vite、FastAPI/uv）。
+2. 已完成脚本 CRUD 与 YAML 校验接口。
+3. 已完成脚本列表页、编辑页、Monaco YAML 编辑器。
+4. M1 联调冒烟已完成：`GET /health`、`POST/GET/PUT/DELETE /api/scripts`、`POST /api/scripts/{id}/copy`、`POST /api/scripts/{id}/validate` 全部通过。
+
 | ID | 任务 | 优先级 | 预计工时 | 依赖 | 产出物 | 验收标准 | 状态 |
 |---|---|---|---:|---|---|---|---|
-| M1-FE-01 | 初始化 Vue3 + TS + Vite 项目 | P0 | 0.5d | 无 | `frontend/` 基础工程 | 本地可启动，路由可访问 | TODO |
-| M1-FE-02 | 接入 UI 框架与基础布局 | P1 | 0.5d | M1-FE-01 | 全局 Layout、导航 | 具备列表/编辑/执行详情页骨架 | TODO |
-| M1-FE-03 | 集成 Monaco YAML 编辑器 | P0 | 1d | M1-FE-01 | `YamlEditor.vue` | 支持高亮、行号、缩进 | TODO |
-| M1-FE-04 | 脚本列表页开发 | P0 | 1d | M1-FE-02 | `ScriptList.vue` | 可展示脚本列表和基本操作入口 | TODO |
-| M1-FE-05 | 脚本编辑页开发 | P0 | 1d | M1-FE-03 | `ScriptEditor.vue` | 可编辑、保存、校验、执行按钮可见 | TODO |
-| M1-BE-01 | 初始化 FastAPI + uv 项目 | P0 | 0.5d | 无 | `backend/` 工程、`pyproject.toml` | `uv run uvicorn` 可启动 | TODO |
-| M1-BE-02 | 建立数据库模型与迁移 | P0 | 1d | M1-BE-01 | `scripts`/`script_versions`/`runs` 表 | 能完成迁移并可读写 | TODO |
-| M1-BE-03 | 脚本 CRUD API | P0 | 1d | M1-BE-02 | `/api/scripts` 系列接口 | 列表/详情/创建/更新/删除可用 | TODO |
-| M1-BE-04 | YAML 语法+规则校验 API | P0 | 1d | M1-BE-01 | `/api/scripts/{id}/validate` | 返回行号、列号、错误信息 | TODO |
-| M1-QA-01 | M1 联调与冒烟测试 | P0 | 0.5d | M1 全部 | 测试记录 | 手动建脚本到保存链路打通 | TODO |
+| M1-FE-01 | 初始化 Vue3 + TS + Vite 项目 | P0 | 0.5d | 无 | `frontend/` 基础工程 | 本地可启动，路由可访问 | DONE |
+| M1-FE-02 | 接入 UI 框架与基础布局 | P1 | 0.5d | M1-FE-01 | 全局 Layout、导航 | 具备列表/编辑/执行详情页骨架 | DONE |
+| M1-FE-03 | 集成 Monaco YAML 编辑器 | P0 | 1d | M1-FE-01 | `YamlEditor.vue` | 支持高亮、行号、缩进 | DONE |
+| M1-FE-04 | 脚本列表页开发 | P0 | 1d | M1-FE-02 | `ScriptList.vue` | 可展示脚本列表和基本操作入口 | DONE |
+| M1-FE-05 | 脚本编辑页开发 | P0 | 1d | M1-FE-03 | `ScriptEditor.vue` | 可编辑、保存、校验、执行按钮可见 | DONE |
+| M1-BE-01 | 初始化 FastAPI + uv 项目 | P0 | 0.5d | 无 | `backend/` 工程、`pyproject.toml` | `uv run uvicorn` 可启动 | DONE |
+| M1-BE-02 | 建立数据库模型与迁移 | P0 | 1d | M1-BE-01 | `scripts`/`script_versions`/`runs` 表 | 能完成迁移并可读写 | DONE |
+| M1-BE-03 | 脚本 CRUD API | P0 | 1d | M1-BE-02 | `/api/scripts` 系列接口 | 列表/详情/创建/更新/删除可用 | DONE |
+| M1-BE-04 | YAML 语法+规则校验 API | P0 | 1d | M1-BE-01 | `/api/scripts/{id}/validate` | 返回行号、列号、错误信息 | DONE |
+| M1-QA-01 | M1 联调与冒烟测试 | P0 | 0.5d | M1 全部 | 测试记录 | 手动建脚本到保存链路打通 | DONE |
 
 ### M2（第 2 周）：执行引擎 + 状态回显 + 日志
 
