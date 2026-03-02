@@ -31,17 +31,22 @@
 
 ### M2（第 2 周）：执行引擎 + 状态回显 + 日志
 
+当前进展：
+1. 后端已完成 runs 执行链路（创建、状态轮询、日志、取消、报告路径）。
+2. 前端已完成执行按钮、执行详情日志、同脚本历史执行展示。
+3. 已通过后端自动化冒烟与前端 build 验证，真机执行回归进行中。
+
 | ID | 任务 | 优先级 | 预计工时 | 依赖 | 产出物 | 验收标准 | 状态 |
 |---|---|---|---:|---|---|---|---|
-| M2-BE-01 | Midscene Runner 封装 | P0 | 1.5d | M1-BE-01 | `midscene_runner.py` | 能执行 `npx midscene <yaml>` 并拿到退出码 | TODO |
-| M2-BE-02 | 异步运行任务服务 | P0 | 1d | M2-BE-01 | `run_service.py` | 任务状态支持 queued/running/success/failed | TODO |
-| M2-BE-03 | 运行 API（创建/详情/日志/取消） | P0 | 1d | M2-BE-02 | `/api/runs` 系列接口 | 前端可发起执行并查询状态 | TODO |
-| M2-BE-04 | 日志持久化与增量查询 | P1 | 1d | M2-BE-03 | 日志存储机制 | 可分页或按偏移量拉取日志 | TODO |
-| M2-BE-05 | 报告路径提取与存储 | P0 | 0.5d | M2-BE-01 | `report_path`、`summary_path` | 成功执行后可返回报告路径 | TODO |
-| M2-FE-01 | 执行按钮与状态机展示 | P0 | 1d | M2-BE-03 | 编辑页执行交互 | 可发起执行并展示实时状态 | TODO |
-| M2-FE-02 | 执行日志面板 | P0 | 1d | M2-BE-04 | `RunDetail.vue` 日志区 | 日志可持续刷新 | TODO |
-| M2-FE-03 | 执行历史列表 | P1 | 0.5d | M2-BE-03 | 历史记录组件 | 可查看最近执行记录 | TODO |
-| M2-QA-01 | M2 回归测试 | P0 | 0.5d | M2 全部 | 测试记录 | 执行成功/失败链路都可复现 | TODO |
+| M2-BE-01 | Midscene Runner 封装 | P0 | 1.5d | M1-BE-01 | `midscene_runner.py` | 能执行 `npx midscene <yaml>` 并拿到退出码 | DONE |
+| M2-BE-02 | 异步运行任务服务 | P0 | 1d | M2-BE-01 | `run_service.py` | 任务状态支持 queued/running/success/failed | DONE |
+| M2-BE-03 | 运行 API（创建/详情/日志/取消） | P0 | 1d | M2-BE-02 | `/api/runs` 系列接口 | 前端可发起执行并查询状态 | DONE |
+| M2-BE-04 | 日志持久化与增量查询 | P1 | 1d | M2-BE-03 | 日志存储机制 | 可分页或按偏移量拉取日志 | DONE |
+| M2-BE-05 | 报告路径提取与存储 | P0 | 0.5d | M2-BE-01 | `report_path`、`summary_path` | 成功执行后可返回报告路径 | DONE |
+| M2-FE-01 | 执行按钮与状态机展示 | P0 | 1d | M2-BE-03 | 编辑页执行交互 | 可发起执行并展示实时状态 | DONE |
+| M2-FE-02 | 执行日志面板 | P0 | 1d | M2-BE-04 | `RunDetail.vue` 日志区 | 日志可持续刷新 | DONE |
+| M2-FE-03 | 执行历史列表 | P1 | 0.5d | M2-BE-03 | 历史记录组件 | 可查看最近执行记录 | DONE |
+| M2-QA-01 | M2 回归测试 | P0 | 0.5d | M2 全部 | 测试记录 | 执行成功/失败链路都可复现 | DOING |
 
 ### M3（第 3 周）：AI 生成 + 报告预览下载
 

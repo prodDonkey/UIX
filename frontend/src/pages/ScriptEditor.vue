@@ -10,7 +10,7 @@
           <el-button @click="goBack">返回列表</el-button>
           <el-button @click="validate">校验</el-button>
           <el-button type="primary" @click="save">保存</el-button>
-          <el-button type="success" disabled>执行（M2）</el-button>
+          <el-button type="success" :loading="running" @click="execute">执行</el-button>
         </div>
       </div>
     </template>
@@ -44,6 +44,7 @@ import { ElMessage } from 'element-plus';
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
+import { runApi } from '../api/runs';
 import { scriptApi } from '../api/scripts';
 import YamlEditor from '../components/YamlEditor.vue';
 
@@ -56,6 +57,7 @@ const sourceType = ref('manual');
 const content = ref('');
 const validateMessage = ref('');
 const validateOk = ref(false);
+const running = ref(false);
 
 onMounted(async () => {
   if (Number.isNaN(scriptId.value) || scriptId.value <= 0) {
@@ -84,6 +86,20 @@ async function validate() {
   validateMessage.value = result.valid
     ? 'YAML 校验通过'
     : `校验失败：${result.message ?? 'unknown error'}${result.line ? ` (line ${result.line})` : ''}`;
+}
+
+async function execute() {
+  running.value = true;
+  try {
+    const run = await runApi.create(scriptId.value);
+    ElMessage.success('任务已启动');
+    await router.push({ name: 'run-detail', params: { id: run.id } });
+  } catch (error) {
+    ElMessage.error('启动执行失败');
+    throw error;
+  } finally {
+    running.value = false;
+  }
 }
 
 async function goBack() {

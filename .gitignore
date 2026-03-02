@@ -24,3 +24,4 @@ dist/
 # Runtime artifacts
 *.log
 app.db
+backend/runtime/
