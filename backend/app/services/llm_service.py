@@ -19,23 +19,23 @@ def _resolve_llm_config(model_override: str | None = None) -> tuple[str, str, st
 
 
 def _build_generation_prompt(prompt: str, device_id: str | None, language: str) -> tuple[str, str]:
-    lang_hint = "中文" if language.lower().startswith("zh") else "English"
+    lang_hint = "中文" if language.lower().startswith("zh") else "英文"
     device_line = (
-        f'If provided, set android.deviceId to "{device_id}".'
+        f'如果提供了 deviceId，请将 android.deviceId 设置为 "{device_id}"。'
         if device_id
-        else "android.deviceId is optional; do not invent fake values."
+        else "android.deviceId 是可选字段；不要凭空编造设备 ID。"
     )
     system = (
-        "You generate Midscene Android YAML scripts only. "
-        "Return valid YAML only, no markdown fences, no explanations. "
-        "Use this structure: android (object), tasks (non-empty list), each task has name and flow list. "
-        "Flow actions can use aiAction, aiQuery, aiAssert, sleep, log. "
+        "你是 Midscene Android YAML 脚本生成器。"
+        "只返回可执行的 YAML 本体，不要返回 Markdown 代码块，不要解释说明。"
+        "脚本必须满足结构：android（对象）、tasks（非空数组），每个 task 必须包含 name 和 flow。"
+        "flow 中可使用 aiAction、aiQuery、aiAssert、sleep、log。"
         f"{device_line} "
-        "Prefer aiAction for interaction steps."
+        "交互步骤优先使用 aiAction。"
     )
     user = (
-        f"Language hint: {lang_hint}\n"
-        "Convert the following requirement into executable Midscene Android YAML:\n"
+        f"语言偏好：{lang_hint}\n"
+        "请把下面需求转换为可执行的 Midscene Android YAML：\n"
         f"{prompt}"
     )
     return system, user
