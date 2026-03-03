@@ -1,0 +1,84 @@
+项目上下文摘要（用于新会话接续）
+
+1) 项目目标
+- 可视化平台：手写 YAML / 自然语言生成 YAML / 一键执行 / 查看 Midscene 报告。
+- 前端：Vue 3
+- 后端：Python FastAPI
+- 依赖管理：uv
+
+2) 当前里程碑状态
+- M1：DONE
+  - 脚本 CRUD、YAML 编辑器、YAML 校验完成。
+- M2：DONE
+  - runs 执行链路（创建/状态/日志/取消/报告路径）完成。
+  - 执行详情页（状态轮询、日志、历史）完成。
+  - 取消执行已修复为“杀进程组”，不再只杀父进程。
+- M3：DONE（文档里 QA 为 DOING，可按需要调整）
+  - 自然语言生成 YAML API 完成。
+  - 生成后 YAML 校验完成。
+  - 报告预览/下载接口 + 路径白名单完成。
+  - 前端 AI 生成弹窗、回填 YAML、报告 iframe/下载完成。
+
+3) 关键后端接口
+- scripts：
+  - GET/POST/PUT/DELETE /api/scripts
+  - POST /api/scripts/{id}/copy
+  - POST /api/scripts/{id}/validate
+  - POST /api/scripts/generate
+- runs：
+  - POST /api/runs
+  - GET /api/runs?script_id=
+  - GET /api/runs/{id}
+  - GET /api/runs/{id}/logs
+  - POST /api/runs/{id}/cancel
+  - GET /api/runs/{id}/report
+  - GET /api/runs/{id}/report/file[?download=1]
+
+4) 关键前端页面
+- /scripts：脚本列表（含新建、复制、删除、更新时间格式化）
+- /scripts/:id：脚本编辑（保存、校验、执行、AI生成）
+- /run/:id：执行详情（状态、日志、历史、报告预览/下载）
+
+5) 模型配置说明
+- 运行脚本使用 Midscene 模型环境变量（backend/.env）：
+  - MIDSCENE_MODEL_BASE_URL
+  - MIDSCENE_MODEL_API_KEY
+  - MIDSCENE_MODEL_NAME
+  - MIDSCENE_MODEL_FAMILY
+- YAML 生成接口可用 LLM 专用变量：
+  - LLM_BASE_URL / LLM_API_KEY / LLM_MODEL_NAME
+- fallback 机制：
+  - 若 LLM_API_KEY / LLM_MODEL_NAME 未配，自动回退到 MIDSCENE_MODEL_API_KEY / MIDSCENE_MODEL_NAME。
+
+6) YAML 规则（当前实现）
+- android.deviceId 可选。
+- 若提供 deviceId，则不能是空字符串。
+- tasks 必须存在且非空。
+
+7) 已知本地未提交文件（截至当前）
+- backend/llms-full.txt
+- backend/llms.txt
+- frontend/package-lock.json
+
+8) 最近关键提交
+- c989b47 feat: implement M3 yaml generation and report preview
+- 1f60f04 fix: make run cancellation terminate full process tree
+- 75a19f5 feat: implement M2 run pipeline and execution UI
+- e75323a fix: stabilize script list navigation and editor unmount
+- 7006721 chore: update app title and format script timestamps
+
+9) 本地启动命令
+- 后端：
+  cd /Users/yaohongliang/work/liuyao/AI/UI/ui_demo/backend
+  uv sync
+  uv run uvicorn app.main:app --reload --port 8000
+- 前端：
+  cd /Users/yaohongliang/work/liuyao/AI/UI/ui_demo/frontend
+  npm install
+  npm run dev -- --port 5173
+
+10) 建议下一步
+- 若进入 M4：
+  1. 端到端真机回归（AI生成->执行->报告）并沉淀验收记录。
+  2. 补部署文档/API 文档。
+  3. 根据回归结果关闭 M3-QA、推进 M4 验收。

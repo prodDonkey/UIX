@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-import os
 
 import httpx
 
@@ -9,11 +8,13 @@ from app.core.config import settings
 
 
 def _resolve_llm_config(model_override: str | None = None) -> tuple[str, str, str]:
-    base_url = settings.llm_base_url or "https://open.bigmodel.cn/api/paas/v4"
-    api_key = settings.llm_api_key or os.getenv("MIDSCENE_MODEL_API_KEY", "")
-    model_name = model_override or settings.llm_model_name or os.getenv("MIDSCENE_MODEL_NAME", "")
+    # Generation prefers LLM_* config for explicit model isolation.
+    # Fallback to MIDSCENE_* if LLM_* is not configured.
+    base_url = settings.llm_base_url or settings.midscene_model_base_url or "https://open.bigmodel.cn/api/paas/v4"
+    api_key = settings.llm_api_key or settings.midscene_model_api_key
+    model_name = model_override or settings.llm_model_name or settings.midscene_model_name
     if not api_key or not model_name:
-        raise ValueError("LLM not configured: set LLM_API_KEY/LLM_MODEL_NAME (or MIDSCENE_* equivalents)")
+        raise ValueError("Model not configured: set LLM_API_KEY/LLM_MODEL_NAME (or MIDSCENE_* fallback)")
     return base_url.rstrip("/"), api_key, model_name
 
 

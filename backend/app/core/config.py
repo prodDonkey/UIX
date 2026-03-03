@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_model_name: str = ""
     llm_timeout_sec: int = 60
+    midscene_model_base_url: str = ""
+    midscene_model_api_key: str = ""
+    midscene_model_name: str = ""
+    midscene_model_family: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
