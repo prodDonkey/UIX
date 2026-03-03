@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_model_name: str = ""
     llm_timeout_sec: int = 60
+    llm_generation_system_prompt: str = ""
+    llm_generation_system_prompt_file: str = ""
     midscene_model_base_url: str = ""
     midscene_model_api_key: str = ""
     midscene_model_name: str = ""
