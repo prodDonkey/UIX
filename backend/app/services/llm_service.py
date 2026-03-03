@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
+from time import perf_counter
 import re
 from pathlib import Path
 
 import httpx
 
 from app.core.config import settings
+
+logger = logging.getLogger("uvicorn.error")
 
 
 def _resolve_llm_config(model_override: str | None = None) -> tuple[str, str, str]:
@@ -73,6 +77,7 @@ async def generate_yaml_from_prompt(
     language: str = "zh",
     model_override: str | None = None,
 ) -> str:
+    started_at = perf_counter()
     base_url, api_key, model_name = _resolve_llm_config(model_override)
     system, user = _build_generation_prompt(prompt, device_id, language)
 
@@ -87,10 +92,31 @@ async def generate_yaml_from_prompt(
 
     headers = {"Authorization": f"Bearer {api_key}"}
     endpoint = f"{base_url}/chat/completions"
+    logger.info(
+        "AI YAML 开始调用模型：model=%s base_url=%s language=%s has_device_id=%s prompt_len=%s",
+        model_name,
+        base_url,
+        language,
+        bool(device_id),
+        len(prompt),
+    )
 
     async with httpx.AsyncClient(timeout=settings.llm_timeout_sec) as client:
-        response = await client.post(endpoint, headers=headers, json=payload)
-        response.raise_for_status()
-        data = response.json()
-        content = data["choices"][0]["message"]["content"]
-        return _extract_yaml(content)
+        try:
+            response = await client.post(endpoint, headers=headers, json=payload)
+            response.raise_for_status()
+            data = response.json()
+            content = data["choices"][0]["message"]["content"]
+            yaml_text = _extract_yaml(content)
+            elapsed_ms = int((perf_counter() - started_at) * 1000)
+            logger.info(
+                "AI YAML 模型调用成功：status=%s elapsed_ms=%s output_len=%s",
+                response.status_code,
+                elapsed_ms,
+                len(yaml_text),
+            )
+            return yaml_text
+        except Exception as exc:  # noqa: BLE001
+            elapsed_ms = int((perf_counter() - started_at) * 1000)
+            logger.exception("AI YAML 模型调用失败：elapsed_ms=%s error=%s", elapsed_ms, exc)
+            raise

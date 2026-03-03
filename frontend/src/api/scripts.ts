@@ -1,5 +1,7 @@
 import { http } from './client';
 
+const GENERATE_TIMEOUT_MS = 90_000;
+
 export type Script = {
   id: number;
   name: string;
@@ -57,7 +59,9 @@ export const scriptApi = {
     return data;
   },
   async generate(payload: GenerateScriptPayload): Promise<GenerateScriptResult> {
-    const { data } = await http.post('/api/scripts/generate', payload);
+    const { data } = await http.post('/api/scripts/generate', payload, {
+      timeout: GENERATE_TIMEOUT_MS,
+    });
     return data;
   },
 };

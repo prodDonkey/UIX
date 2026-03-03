@@ -89,13 +89,33 @@ async function generate() {
     emit('close');
     ElMessage.success('YAML 生成成功');
   } catch (error: any) {
-    const detail = error?.response?.data?.detail;
+    const responseData = error?.response?.data;
+    const detail = responseData?.detail;
     if (typeof detail === 'string') {
       errorMsg.value = detail;
       return;
     }
     if (detail?.message) {
       errorMsg.value = `生成结果校验失败：${detail.message}`;
+      return;
+    }
+    if (Array.isArray(detail) && detail.length) {
+      errorMsg.value = detail
+        .map((item: any) => item?.msg || item?.message || '')
+        .filter(Boolean)
+        .join('; ');
+      if (errorMsg.value) return;
+    }
+    if (typeof responseData === 'string' && responseData.trim()) {
+      errorMsg.value = responseData;
+      return;
+    }
+    if (error?.code === 'ECONNABORTED' || String(error?.message || '').includes('timeout')) {
+      errorMsg.value = '请求超时：AI 生成较慢，请稍后重试，或简化需求描述后再试';
+      return;
+    }
+    if (error?.message) {
+      errorMsg.value = `请求失败：${error.message}`;
       return;
     }
     errorMsg.value = '生成失败，请检查模型配置或稍后重试';
@@ -110,4 +130,3 @@ async function generate() {
   margin-top: 10px;
 }
 </style>
-

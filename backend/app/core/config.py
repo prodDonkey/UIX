@@ -1,4 +1,8 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
@@ -20,7 +24,10 @@ class Settings(BaseSettings):
     midscene_model_name: str = ""
     midscene_model_family: str = ""
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=(str(BACKEND_ROOT / ".env"), ".env"),
+        extra="ignore",
+    )
 
 
 settings = Settings()
