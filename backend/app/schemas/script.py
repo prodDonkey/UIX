@@ -37,3 +37,15 @@ class ScriptValidateResponse(BaseModel):
     line: int | None = None
     column: int | None = None
     message: str | None = None
+
+
+class ScriptGenerateRequest(BaseModel):
+    prompt: str = Field(min_length=1, description="Natural language description of the automation task")
+    device_id: str | None = Field(default=None, description="Optional Android device id")
+    language: str = Field(default="zh", description="Prompt language hint: zh/en")
+    model: str | None = Field(default=None, description="Optional override model name")
+
+
+class ScriptGenerateResponse(BaseModel):
+    yaml: str
+    warnings: list[str] = []

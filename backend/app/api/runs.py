@@ -1,6 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.run import Run
 from app.schemas.run import RunCreateRequest, RunLogsResponse, RunRead
@@ -59,9 +63,52 @@ def cancel_run_task(run_id: int, db: Session = Depends(get_db)) -> Run:
 
 
 @router.get("/{run_id}/report")
-def get_run_report(run_id: int, db: Session = Depends(get_db)) -> dict[str, str | None]:
+def get_run_report(
+    run_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> dict[str, str | None]:
     run = db.get(Run, run_id)
     if not run:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
-    return {"report_path": get_report_path(run)}
+    report_path = get_report_path(run)
+    if not report_path:
+        return {"report_path": None, "preview_url": None, "download_url": None}
+    preview_url = str(request.url_for("get_run_report_file", run_id=run_id))
+    download_url = f"{preview_url}?download=1"
+    return {
+        "report_path": report_path,
+        "preview_url": preview_url,
+        "download_url": download_url,
+    }
 
+
+@router.get("/{run_id}/report/file", name="get_run_report_file")
+def get_run_report_file(
+    run_id: int,
+    download: int = Query(default=0),
+    db: Session = Depends(get_db),
+) -> FileResponse:
+    run = db.get(Run, run_id)
+    if not run:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+
+    report_path = get_report_path(run)
+    if not report_path:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+
+    report_file = Path(report_path).resolve()
+    allowed_root = Path(settings.report_root_dir).resolve()
+    if not report_file.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report file not found")
+    if not report_file.is_relative_to(allowed_root):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Report path not allowed")
+
+    if download:
+        return FileResponse(path=report_file, filename=report_file.name, media_type="text/html")
+    return FileResponse(
+        path=report_file,
+        filename=report_file.name,
+        media_type="text/html",
+        headers={"Content-Disposition": f'inline; filename="{report_file.name}"'},
+    )

@@ -30,8 +30,10 @@ def validate_yaml_content(content: str) -> ValidationResult:
     if not isinstance(android, dict):
         return ValidationResult(valid=False, message="Missing or invalid 'android' section")
 
-    if not android.get("deviceId"):
-        return ValidationResult(valid=False, message="Missing 'android.deviceId'")
+    # `android.deviceId` is optional. Midscene CLI can also inject it via
+    # command line args/environment at runtime.
+    if "deviceId" in android and android.get("deviceId") in ("", None):
+        return ValidationResult(valid=False, message="'android.deviceId' must not be empty when provided")
 
     if not isinstance(tasks, list) or len(tasks) == 0:
         return ValidationResult(valid=False, message="Missing or empty 'tasks' list")

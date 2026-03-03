@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.generate import router as generate_router
 from app.api.runs import router as runs_router
 from app.api.scripts import router as scripts_router
 from app.core.config import settings
@@ -29,4 +30,5 @@ def health() -> dict[str, str]:
 
 
 app.include_router(scripts_router)
+app.include_router(generate_router)
 app.include_router(runs_router)

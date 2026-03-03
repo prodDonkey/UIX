@@ -16,6 +16,18 @@ export type ValidateResult = {
   message?: string;
 };
 
+export type GenerateScriptPayload = {
+  prompt: string;
+  device_id?: string;
+  language?: 'zh' | 'en';
+  model?: string;
+};
+
+export type GenerateScriptResult = {
+  yaml: string;
+  warnings: string[];
+};
+
 export const scriptApi = {
   async list(): Promise<Script[]> {
     const { data } = await http.get('/api/scripts');
@@ -42,6 +54,10 @@ export const scriptApi = {
   },
   async validate(id: number, content: string): Promise<ValidateResult> {
     const { data } = await http.post(`/api/scripts/${id}/validate`, { content });
+    return data;
+  },
+  async generate(payload: GenerateScriptPayload): Promise<GenerateScriptResult> {
+    const { data } = await http.post('/api/scripts/generate', payload);
     return data;
   },
 };

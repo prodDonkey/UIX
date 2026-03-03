@@ -13,6 +13,12 @@ export type Run = {
   error_message: string | null;
 };
 
+export type RunReport = {
+  report_path: string | null;
+  preview_url: string | null;
+  download_url: string | null;
+};
+
 export const runApi = {
   async create(scriptId: number): Promise<Run> {
     const { data } = await http.post('/api/runs', { script_id: scriptId });
@@ -36,9 +42,8 @@ export const runApi = {
     const { data } = await http.post(`/api/runs/${runId}/cancel`);
     return data;
   },
-  async report(runId: number): Promise<{ report_path: string | null }> {
+  async report(runId: number): Promise<RunReport> {
     const { data } = await http.get(`/api/runs/${runId}/report`);
     return data;
   },
 };
-

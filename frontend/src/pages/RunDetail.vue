@@ -19,7 +19,7 @@
           <el-descriptions-item label="开始时间">{{ run.started_at || '-' }}</el-descriptions-item>
           <el-descriptions-item label="结束时间">{{ run.ended_at || '-' }}</el-descriptions-item>
           <el-descriptions-item label="耗时(ms)">{{ run.duration_ms ?? '-' }}</el-descriptions-item>
-          <el-descriptions-item label="报告路径">{{ run.report_path || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="报告路径">{{ reportInfo?.report_path || run.report_path || '-' }}</el-descriptions-item>
         </el-descriptions>
 
         <el-alert
@@ -32,6 +32,14 @@
 
         <h4 class="title">实时日志</h4>
         <el-input v-model="logs" type="textarea" :rows="18" readonly />
+
+        <h4 class="title">报告预览</h4>
+        <div class="report-actions">
+          <el-button :disabled="!reportInfo?.preview_url" @click="openPreview">新窗口预览</el-button>
+          <el-button type="primary" :disabled="!reportInfo?.download_url" @click="downloadReport">下载报告</el-button>
+        </div>
+        <iframe v-if="reportInfo?.preview_url" :src="reportInfo.preview_url" class="report-frame" />
+        <el-empty v-else description="暂无报告（任务完成后生成）" />
       </el-card>
     </el-col>
 
@@ -60,7 +68,7 @@ import { ElMessage } from 'element-plus';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import { runApi, type Run } from '../api/runs';
+import { runApi, type Run, type RunReport } from '../api/runs';
 
 const route = useRoute();
 const router = useRouter();
@@ -69,6 +77,7 @@ const runId = computed(() => Number(route.params.id));
 const run = ref<Run | null>(null);
 const history = ref<Run[]>([]);
 const logs = ref('');
+const reportInfo = ref<RunReport | null>(null);
 
 let timer: number | null = null;
 
@@ -87,6 +96,7 @@ async function refresh() {
   run.value = detail;
   const logData = await runApi.logs(runId.value);
   logs.value = logData.content;
+  reportInfo.value = await runApi.report(runId.value);
   if (detail.script_id) {
     history.value = await runApi.list(detail.script_id);
   }
@@ -100,6 +110,16 @@ async function cancelRun() {
 
 function goRun(id: number) {
   router.push({ name: 'run-detail', params: { id } });
+}
+
+function openPreview() {
+  if (!reportInfo.value?.preview_url) return;
+  window.open(reportInfo.value.preview_url, '_blank');
+}
+
+function downloadReport() {
+  if (!reportInfo.value?.download_url) return;
+  window.open(reportInfo.value.download_url, '_blank');
 }
 
 onMounted(async () => {
@@ -133,5 +153,16 @@ onBeforeUnmount(() => {
 }
 .error {
   margin-top: 10px;
+}
+.report-actions {
+  margin-bottom: 8px;
+  display: flex;
+  gap: 8px;
+}
+.report-frame {
+  width: 100%;
+  min-height: 500px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
 }
 </style>

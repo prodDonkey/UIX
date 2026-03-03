@@ -25,3 +25,4 @@ dist/
 *.log
 app.db
 backend/runtime/
+backend/midscene_run/

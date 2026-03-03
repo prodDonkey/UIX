@@ -8,6 +8,7 @@
         </div>
         <div class="actions">
           <el-button @click="goBack">返回列表</el-button>
+          <el-button @click="showGenerateDialog = true">AI生成</el-button>
           <el-button @click="validate">校验</el-button>
           <el-button type="primary" @click="save">保存</el-button>
           <el-button type="success" :loading="running" @click="execute">执行</el-button>
@@ -36,6 +37,12 @@
       show-icon
       class="alert"
     />
+
+    <AiGeneratePanel
+      :visible="showGenerateDialog"
+      @close="showGenerateDialog = false"
+      @generated="onYamlGenerated"
+    />
   </el-card>
 </template>
 
@@ -46,6 +53,7 @@ import { useRoute, useRouter } from 'vue-router';
 
 import { runApi } from '../api/runs';
 import { scriptApi } from '../api/scripts';
+import AiGeneratePanel from '../components/AiGeneratePanel.vue';
 import YamlEditor from '../components/YamlEditor.vue';
 
 const route = useRoute();
@@ -58,6 +66,7 @@ const content = ref('');
 const validateMessage = ref('');
 const validateOk = ref(false);
 const running = ref(false);
+const showGenerateDialog = ref(false);
 
 onMounted(async () => {
   if (Number.isNaN(scriptId.value) || scriptId.value <= 0) {
@@ -104,6 +113,11 @@ async function execute() {
 
 async function goBack() {
   await router.replace({ name: 'scripts-list' });
+}
+
+function onYamlGenerated(yaml: string) {
+  content.value = yaml;
+  sourceType.value = 'ai';
 }
 </script>
 

@@ -8,6 +8,11 @@ class Settings(BaseSettings):
     run_scripts_dir: str = "./runtime/scripts"
     run_logs_dir: str = "./runtime/logs"
     run_command_prefix: str = "npx midscene"
+    report_root_dir: str = "./midscene_run/report"
+    llm_base_url: str = ""
+    llm_api_key: str = ""
+    llm_model_name: str = ""
+    llm_timeout_sec: int = 60
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
