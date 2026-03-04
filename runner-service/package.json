@@ -11,6 +11,8 @@
     "test": "tsx --test src/**/*.test.ts"
   },
   "dependencies": {
+    "@midscene/android": "^1.5.2",
+    "@midscene/core": "^1.5.2",
     "fastify": "^4.28.1"
   },
   "devDependencies": {

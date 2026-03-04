@@ -31,7 +31,9 @@
 1. 需求和技术方案已完成文档化。
 2. 已完成 Runner 工程初始化（Fastify + TypeScript + 健康检查接口）。
 3. 已完成 RunManager 状态机与内存状态管理，并补齐单元测试。
-4. 本里程碑整体状态：`DOING`（A3/A4/A5 待完成）。
+4. 已完成 `yaml-runner` 执行器接入（`runYaml + onDumpUpdate`）与取消能力。
+5. 已完成 Runner 核心 API：`/runs/start`、`/runs/:runId/progress`、`/runs/:runId/cancel`、`/runs/:runId/result`。
+6. 本里程碑整体状态：`DOING`（A5 待完成）。
 
 ## A1. 初始化 runner-service 工程
 - 优先级：P0
@@ -60,7 +62,7 @@
 
 ## A3. 集成 Midscene 执行能力（runYaml + onDumpUpdate）
 - 优先级：P0
-- 状态：TODO
+- 状态：DONE
 - 目标：可执行 YAML 并持续产出结构化进度。
 - 产出：
   - `runner-service/src/services/yaml-runner.ts`
@@ -74,7 +76,7 @@
 
 ## A4. 实现 Runner API
 - 优先级：P0
-- 状态：TODO
+- 状态：DONE
 - 目标：暴露标准接口。
 - 产出：
   - `POST /runs/start`
