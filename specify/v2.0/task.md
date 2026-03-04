@@ -14,7 +14,7 @@
 |---|---|---|---|
 | Milestone A | Runner 服务 MVP | DOING | 已完成 A1/A2（脚手架与内存状态管理） |
 | Milestone B | backend 接入 Runner | DOING | 已完成 B1-B5，B6 回归验证待补齐 |
-| Milestone C | 前端展示结构化步骤 | DOING | 已完成 C1/C2，轮询优化与体验优化待做 |
+| Milestone C | 前端展示结构化步骤 | DOING | 已完成 C1/C2/C3，C4 体验优化部分完成 |
 | Milestone D | 联调发布与运维 | TODO | 待 A/B/C 完成后进行 |
 
 > 当前已完成的前置成果（v2.0相关）：
@@ -187,7 +187,9 @@
 1. 运行详情页已完成 Android Playground 嵌入与布局调整。
 2. 已接入 `/api/runs/{id}/progress`，可展示当前任务、当前动作与完成度。
 3. 已增加最近步骤展示（基于 `progress_json.executionDump.tasks`）。
-4. 本里程碑整体状态：`DOING`（C3/C4 待完成）。
+4. 已完成轮询优化：运行中高频、终态降频，减少无效请求。
+5. 已完成体验优化的第一步：最近步骤中“最新步骤”高亮。
+6. 本里程碑整体状态：`DOING`（C4 其余体验项可按需继续）。
 
 ## C1. 前端 API 扩展
 - 优先级：P0
@@ -214,7 +216,7 @@
 
 ## C3. 前端轮询优化
 - 优先级：P1
-- 状态：TODO
+- 状态：DONE
 - 目标：减少无效请求。
 - 规则：
   - queued/running：保持高频轮询
@@ -224,7 +226,7 @@
 
 ## C4. UI 联动体验优化（可选）
 - 优先级：P2
-- 状态：TODO
+- 状态：DOING
 - 目标：提升可读性。
 - 内容：
   - 当前步骤高亮

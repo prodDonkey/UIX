@@ -87,7 +87,13 @@
           <div v-if="recentSteps.length > 0" class="recent-steps">
             <div class="recent-title">最近步骤</div>
             <ul class="recent-list">
-              <li v-for="step in recentSteps" :key="step">{{ step }}</li>
+              <li
+                v-for="(step, index) in recentSteps"
+                :key="`${index}-${step}`"
+                :class="{ 'latest-step': index === recentSteps.length - 1 }"
+              >
+                {{ step }}
+              </li>
             </ul>
           </div>
         </div>
@@ -116,6 +122,7 @@ const reportInfo = ref<RunReport | null>(null);
 const runProgress = ref<RunProgress | null>(null);
 
 let timer: number | null = null;
+let stopped = false;
 
 const statusTagType = computed(() => {
   if (!run.value) return 'info';
@@ -186,6 +193,24 @@ async function refresh() {
   }
 }
 
+function getPollIntervalMs(status: Run['status'] | undefined): number {
+  if (status === 'queued' || status === 'running') return 2000;
+  return 8000;
+}
+
+async function pollingLoop() {
+  while (!stopped) {
+    await refresh();
+    const interval = getPollIntervalMs(run.value?.status);
+    await new Promise<void>((resolve) => {
+      timer = window.setTimeout(() => {
+        timer = null;
+        resolve();
+      }, interval);
+    });
+  }
+}
+
 async function cancelRun() {
   await runApi.cancel(runId.value);
   ElMessage.success('已发送取消请求');
@@ -227,14 +252,13 @@ function openAndroidPlayground() {
 }
 
 onMounted(async () => {
-  await refresh();
-  timer = window.setInterval(async () => {
-    await refresh();
-  }, 2000);
+  stopped = false;
+  await pollingLoop();
 });
 
 onBeforeUnmount(() => {
-  if (timer) window.clearInterval(timer);
+  stopped = true;
+  if (timer) window.clearTimeout(timer);
 });
 </script>
 
@@ -293,6 +317,10 @@ onBeforeUnmount(() => {
 }
 .recent-list li {
   line-height: 1.6;
+}
+.recent-list li.latest-step {
+  color: #409eff;
+  font-weight: 600;
 }
 .device-header {
   display: flex;
