@@ -100,3 +100,66 @@ test("terminal run rejects invalid transition", () => {
       error instanceof RunStateError && error.code === "RUN_TERMINAL"
   );
 });
+
+test("updateProgress clamps invalid numeric values", () => {
+  const manager = new RunManager();
+  manager.createRun({
+    runId: 107,
+    yamlContent: "android: {}"
+  });
+
+  const updated = manager.updateProgress(107, {
+    completed: 99,
+    total: 3
+  });
+
+  assert.equal(updated.completed, 3);
+  assert.equal(updated.total, 3);
+
+  const updatedNegative = manager.updateProgress(107, {
+    completed: -5,
+    total: -1
+  });
+  assert.equal(updatedNegative.completed, 0);
+  assert.equal(updatedNegative.total, 0);
+});
+
+test("updateProgress is ignored after terminal state", () => {
+  const manager = new RunManager();
+  manager.createRun({
+    runId: 108,
+    yamlContent: "android: {}"
+  });
+  manager.startRun(108);
+  manager.markSuccess(108, { reportPath: "/tmp/report.html" });
+
+  const before = manager.getRun(108);
+  assert.ok(before);
+
+  const after = manager.updateProgress(108, {
+    currentTask: "should-not-update",
+    completed: 1,
+    total: 10
+  });
+
+  assert.equal(after.status, "success");
+  assert.equal(after.currentTask, before?.currentTask ?? null);
+  assert.equal(after.reportPath, "/tmp/report.html");
+});
+
+test("markFailed keeps terminal timestamps and error message", () => {
+  const manager = new RunManager();
+  manager.createRun({
+    runId: 109,
+    yamlContent: "android: {}"
+  });
+  manager.startRun(109);
+
+  const failed = manager.markFailed(109, {
+    errorMessage: "device disconnected"
+  });
+  assert.equal(failed.status, "failed");
+  assert.equal(failed.errorMessage, "device disconnected");
+  assert.ok(failed.startedAt);
+  assert.ok(failed.endedAt);
+});

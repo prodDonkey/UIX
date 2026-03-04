@@ -112,6 +112,9 @@ export function createServer() {
       if (!run) {
         return reply.status(404).send({ error: `Run ${runId} not found` });
       }
+      app.log.info(
+        `[progress] runId=${runId}, status=${run.status}, task=${run.currentTask ?? "-"}, action=${run.currentAction ?? "-"}, completed=${run.completed}/${run.total}`
+      );
       return {
         runId: run.runId,
         status: run.status,
@@ -152,9 +155,11 @@ export function createServer() {
       if (!cancelled) {
         // 执行器已无活跃句柄，直接落 cancel 态，避免悬挂。
         runManager.cancelRun(runId);
+        app.log.warn(`[cancel] runId=${runId} 无活跃执行句柄，直接标记cancelled`);
       } else {
         // 先更新状态给调用方快速反馈，后续 onCancelled 会幂等处理。
         runManager.cancelRun(runId);
+        app.log.info(`[cancel] runId=${runId} 已请求执行器取消`);
       }
 
       return {
@@ -178,6 +183,9 @@ export function createServer() {
       if (!run) {
         return reply.status(404).send({ error: `Run ${runId} not found` });
       }
+      app.log.info(
+        `[result] runId=${runId}, status=${run.status}, report=${run.reportPath ?? "-"}, error=${run.errorMessage ?? "-"}`
+      );
       return {
         runId: run.runId,
         status: run.status,

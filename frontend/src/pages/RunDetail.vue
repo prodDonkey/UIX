@@ -68,6 +68,7 @@
         <template #header>
           <div class="device-header logs-header">
             <strong>实时日志</strong>
+            <span v-if="activeLogKeyword" class="log-anchor">已定位：{{ activeLogKeyword }}</span>
           </div>
         </template>
         <div class="progress-summary">
@@ -89,23 +90,39 @@
             <ul class="recent-list">
               <li
                 v-for="(step, index) in recentSteps"
-                :key="`${index}-${step}`"
-                :class="{ 'latest-step': index === recentSteps.length - 1 }"
+                :key="`${index}-${step.label}-${step.status}`"
+                :class="{
+                  'latest-step': index === recentSteps.length - 1,
+                  'error-step': step.isError,
+                  'running-step': step.isRunning,
+                }"
               >
-                {{ step }}
+                <div class="step-main">
+                  <span class="step-text">{{ step.label }}</span>
+                  <span class="step-status">{{ stepStatusText(step.status) }}</span>
+                </div>
+                <el-button
+                  link
+                  size="small"
+                  type="primary"
+                  class="locate-log-btn"
+                  @click="locateStepLog(step)"
+                >
+                  定位日志
+                </el-button>
               </li>
             </ul>
           </div>
         </div>
-        <el-input v-model="logs" type="textarea" :rows="18" readonly />
+        <el-input ref="logsInputRef" v-model="logs" type="textarea" :rows="18" readonly />
       </el-card>
     </el-col>
   </el-row>
 </template>
 
 <script setup lang="ts">
-import { ElMessage } from 'element-plus';
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { ElMessage, type InputInstance } from 'element-plus';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import { runApi, type Run, type RunProgress, type RunReport } from '../api/runs';
@@ -120,6 +137,8 @@ const history = ref<Run[]>([]);
 const logs = ref('');
 const reportInfo = ref<RunReport | null>(null);
 const runProgress = ref<RunProgress | null>(null);
+const logsInputRef = ref<InputInstance>();
+const activeLogKeyword = ref('');
 
 let timer: number | null = null;
 let stopped = false;
@@ -169,13 +188,73 @@ const progressCounterText = computed(() => {
   return `${completed}/${total}`;
 });
 
+type RecentStepItem = {
+  label: string;
+  status: string;
+  keyword: string;
+  isError: boolean;
+  isRunning: boolean;
+};
+
+function resolveStepLabel(task: {
+  type?: string;
+  subType?: string;
+  thought?: string;
+  param?: { name?: string; prompt?: string };
+}) {
+  return task.subType || task.param?.name || task.param?.prompt || task.thought || task.type || '';
+}
+
 const recentSteps = computed(() => {
   const tasks = parsedProgressPayload.value?.executionDump?.tasks || [];
   return tasks
-    .slice(-5)
-    .map((task) => task.subType || task.param?.name || task.param?.prompt || task.thought || task.type || '')
-    .filter((text) => !!text);
+    .slice(-8)
+    .map((task): RecentStepItem | null => {
+      const label = resolveStepLabel(task);
+      if (!label) return null;
+      const status = task.status || 'unknown';
+      return {
+        label,
+        status,
+        keyword: label,
+        isError: status === 'failed' || status === 'cancelled',
+        isRunning: status === 'running',
+      };
+    })
+    .filter((item): item is RecentStepItem => !!item);
 });
+
+function stepStatusText(status: string) {
+  if (status === 'running') return '执行中';
+  if (status === 'finished' || status === 'success') return '已完成';
+  if (status === 'failed') return '失败';
+  if (status === 'cancelled') return '已取消';
+  return status;
+}
+
+function locateStepLog(step: RecentStepItem) {
+  if (!step.keyword) {
+    ElMessage.warning('该步骤缺少可定位关键字');
+    return;
+  }
+  const content = logs.value || '';
+  const matchedIndex = content.lastIndexOf(step.keyword);
+  if (matchedIndex < 0) {
+    ElMessage.warning(`日志中未找到：${step.keyword}`);
+    return;
+  }
+
+  activeLogKeyword.value = step.keyword;
+  nextTick(() => {
+    const textarea = logsInputRef.value?.textarea;
+    if (!textarea) return;
+    textarea.focus();
+    textarea.setSelectionRange(matchedIndex, matchedIndex + step.keyword.length);
+    const linesBefore = content.slice(0, matchedIndex).split('\n').length - 1;
+    textarea.scrollTop = Math.max(linesBefore * 20 - 40, 0);
+  });
+  ElMessage.success(`已定位日志关键字：${step.keyword}`);
+}
 
 async function refresh() {
   const [detail, progress, logData, report] = await Promise.all([
@@ -317,15 +396,49 @@ onBeforeUnmount(() => {
 }
 .recent-list li {
   line-height: 1.6;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 0;
 }
 .recent-list li.latest-step {
   color: #409eff;
   font-weight: 600;
 }
+.recent-list li.error-step {
+  color: #f56c6c;
+  font-weight: 600;
+}
+.recent-list li.running-step .step-status {
+  color: #e6a23c;
+}
+.step-main {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.step-text {
+  word-break: break-word;
+}
+.step-status {
+  color: #909399;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.locate-log-btn {
+  flex-shrink: 0;
+  padding: 0;
+}
 .device-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+}
+.log-anchor {
+  color: #409eff;
+  font-size: 12px;
 }
 .title {
   margin: 14px 0 8px;

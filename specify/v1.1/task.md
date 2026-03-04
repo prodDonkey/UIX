@@ -1,7 +1,7 @@
-# v2.0 任务拆解（task）
+# v1.1.0 任务拆解（task）
 
 ## 1. 说明
-本文档将 `v2.0/spec.md` 与 `v2.0/plan.md` 落地为可执行任务清单，默认采用 Runner 单路径（不保留 legacy 模式）。
+本文档将 `v1.1/spec.md` 与 `v1.1/plan.md` 落地为可执行任务清单，默认采用 Runner 单路径（不保留 legacy 模式）。
 
 任务状态建议：`TODO` / `DOING` / `DONE` / `BLOCKED`
 优先级建议：`P0`（必须）/ `P1`（重要）/ `P2`（优化）
@@ -12,15 +12,15 @@
 
 | 里程碑 | 目标 | 当前实现状态 | 备注 |
 |---|---|---|---|
-| Milestone A | Runner 服务 MVP | DOING | 已完成 A1/A2（脚手架与内存状态管理） |
-| Milestone B | backend 接入 Runner | DOING | 已完成 B1-B5，B6 回归验证待补齐 |
-| Milestone C | 前端展示结构化步骤 | DOING | 已完成 C1/C2/C3，C4 体验优化部分完成 |
+| Milestone A | Runner 服务 MVP | DONE | 已完成 A1-A5（含测试与日志补强） |
+| Milestone B | backend 接入 Runner | DONE | 已完成 B1-B6（含回归测试） |
+| Milestone C | 前端展示结构化步骤 | DONE | 已完成 C1-C4（含错误步骤高亮与日志联动） |
 | Milestone D | 联调发布与运维 | DONE | 已完成联调验收、发布手册、回滚预案与文档收敛 |
 
-> 当前已完成的前置成果（v2.0相关）：
-> 1. 需求文档：`specify/v2.0/spec.md`
-> 2. 技术计划：`specify/v2.0/plan.md`
-> 3. 上下文续接：`specify/v2.0/context_summary.txt`
+> 当前已完成的前置成果（v1.1相关）：
+> 1. 需求文档：`specify/v1.1/spec.md`
+> 2. 技术计划：`specify/v1.1/plan.md`
+> 3. 上下文续接：`specify/v1.1/context_summary.txt`
 > 4. 运行详情页已嵌入 Android Playground 画面（用于同屏观察设备）
 
 ---
@@ -33,7 +33,9 @@
 3. 已完成 RunManager 状态机与内存状态管理，并补齐单元测试。
 4. 已完成 `yaml-runner` 执行器接入（`runYaml + onDumpUpdate`）与取消能力。
 5. 已完成 Runner 核心 API：`/runs/start`、`/runs/:runId/progress`、`/runs/:runId/cancel`、`/runs/:runId/result`。
-6. 本里程碑整体状态：`DOING`（A5 待完成）。
+6. 已新增 `yaml-runner` 映射逻辑测试，覆盖 progress 计算与取消空句柄场景。
+7. 已补充 Runner API 关键日志（progress/result/cancel）。
+8. 本里程碑整体状态：`DONE`。
 
 ## A1. 初始化 runner-service 工程
 - 优先级：P0
@@ -89,13 +91,17 @@
 
 ## A5. Runner 基础测试与日志
 - 优先级：P1
-- 状态：TODO
+- 状态：DONE
 - 目标：具备最小可维护性。
 - 产出：
   - 单元测试（状态机、取消、进度映射）
   - 关键日志（runId、状态变化、异常）
 - 验收：
   - 核心测试通过。
+- 交付：
+  - `runner-service/src/services/run-manager.test.ts`
+  - `runner-service/src/services/yaml-runner.test.ts`
+  - `runner-service/src/server.ts`
 
 ---
 
@@ -106,7 +112,8 @@
 2. 已完成 runs 模型与 schema 扩展：`current_task/current_action/progress_json`。
 3. 已将 `run_service` 执行链替换为 Runner API 调用与轮询落库。
 4. 已新增 `GET /api/runs/{id}/progress` 接口。
-5. 本里程碑整体状态：`DOING`（B6 回归测试待完善）。
+5. 已新增 backend 回归测试，覆盖脚本 CRUD 与 runs 详情/日志/报告/progress 接口。
+6. 本里程碑整体状态：`DONE`。
 
 ## B1. backend 配置扩展
 - 优先级：P0
@@ -172,12 +179,14 @@
 
 ## B6. backend 回归测试
 - 优先级：P1
-- 状态：TODO
+- 状态：DONE
 - 目标：保障 runs 相关功能无回归。
 - 验收：
   - `scripts` CRUD 不受影响
   - `runs` 列表/详情/日志/报告仍可用
   - 新增 progress 接口测试通过
+- 交付：
+  - `backend/tests/test_runs_regression.py`
 
 ---
 
@@ -189,7 +198,8 @@
 3. 已增加最近步骤展示（基于 `progress_json.executionDump.tasks`）。
 4. 已完成轮询优化：运行中高频、终态降频，减少无效请求。
 5. 已完成体验优化的第一步：最近步骤中“最新步骤”高亮。
-6. 本里程碑整体状态：`DOING`（C4 其余体验项可按需继续）。
+6. 已完成“错误步骤突出显示 + 日志定位联动”。
+7. 本里程碑整体状态：`DONE`。
 
 ## C1. 前端 API 扩展
 - 优先级：P0
@@ -226,12 +236,14 @@
 
 ## C4. UI 联动体验优化（可选）
 - 优先级：P2
-- 状态：DOING
+- 状态：DONE
 - 目标：提升可读性。
 - 内容：
   - 当前步骤高亮
   - 错误步骤突出显示
   - 与实时日志区域联动定位
+- 交付：
+  - `frontend/src/pages/RunDetail.vue`
 
 ---
 
@@ -255,7 +267,7 @@
 - 验收：
   - 状态、步骤、日志、报告一致。
 - 交付：
-  - `specify/v2.0/d1-integration-report.md`
+  - `specify/v1.1/d1-integration-report.md`
 
 ## D2. Runner 发布流程
 - 优先级：P0
@@ -264,7 +276,7 @@
 - 验收：
   - 每环境有通过记录与回归结果。
 - 交付：
-  - `specify/v2.0/deploy-runbook.md`
+  - `specify/v1.1/deploy-runbook.md`
 
 ## D3. 故障处置与回滚预案
 - 优先级：P0
@@ -276,7 +288,7 @@
 - 验收：
   - 演练一次并记录结果。
 - 交付：
-  - `specify/v2.0/rollback-runbook.md`
+  - `specify/v1.1/rollback-runbook.md`
 
 ## D4. 文档收敛
 - 优先级：P1
@@ -287,7 +299,7 @@
   - 配置说明
   - 常见故障排查
 - 交付：
-  - `specify/v2.0/deploy-runbook.md`
+  - `specify/v1.1/deploy-runbook.md`
 
 ---
 
@@ -307,8 +319,8 @@
 - [x] 文档与运维预案完整。
 
 验收执行记录（2026-03-04）：
-- `runner-service`：`npm test` 通过（6/6）。
-- `backend`：`uv run python -m compileall app` 通过。
+- `runner-service`：`npm run typecheck && npm test` 通过（12/12）。
+- `backend`：`uv run pytest -q` 通过（2 passed）。
 - `frontend`：`npm run build` 通过。
 
 ---

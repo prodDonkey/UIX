@@ -37,7 +37,7 @@ function extractTaskLabel(task: any): string | null {
   );
 }
 
-function buildProgressFromDump(executionDump: ExecutionDump): RunProgressPatch {
+export function buildProgressFromDump(executionDump: ExecutionDump): RunProgressPatch {
   const tasks = Array.isArray(executionDump.tasks) ? executionDump.tasks : [];
   const total = tasks.length;
   const completed = tasks.filter((task) =>
