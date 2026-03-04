@@ -1,16 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-import os
+import json
 from pathlib import Path
-import re
-import shlex
-import signal
-import subprocess
 import threading
 import time
-from typing import Final
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -18,9 +14,6 @@ from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models.run import Run
 from app.models.script import Script
-
-_ACTIVE_PROCESSES: dict[int, subprocess.Popen[str]] = {}
-_ACTIVE_LOCK: Final = threading.Lock()
 
 
 def create_run(db: Session, script_id: int) -> Run:
@@ -51,7 +44,7 @@ def cancel_run(db: Session, run_id: int) -> Run | None:
     if not run:
         return None
 
-    # Idempotent cancel for queued/running tasks.
+    # 幂等取消：仅 queued/running 允许切换为 cancelled
     if run.status in ("queued", "running"):
         run.status = "cancelled"
         run.ended_at = datetime.utcnow()
@@ -60,10 +53,9 @@ def cancel_run(db: Session, run_id: int) -> Run | None:
         db.commit()
         db.refresh(run)
 
-    with _ACTIVE_LOCK:
-        proc = _ACTIVE_PROCESSES.get(run_id)
-    if proc and proc.poll() is None:
-        _terminate_process_tree(proc)
+    # 最佳努力通知 Runner 取消，不影响接口返回
+    _runner_cancel(run_id)
+    _append_log_line(run.log_path, f"[{_now_str()}] cancel requested for run {run_id}")
     return run
 
 
@@ -75,6 +67,7 @@ def _execute_run(run_id: int) -> None:
             return
         if run.status == "cancelled":
             return
+
         script = db.get(Script, run.script_id)
         if not script:
             run.status = "failed"
@@ -89,51 +82,66 @@ def _execute_run(run_id: int) -> None:
 
         yaml_path = scripts_dir / f"run-{run.id}-script-{run.script_id}.yaml"
         log_path = logs_dir / f"run-{run.id}.log"
-        yaml_path.write_text(script.content)
+        yaml_path.write_text(script.content, encoding="utf-8")
 
         run.status = "running"
         run.started_at = datetime.utcnow()
         run.log_path = str(log_path.resolve())
+        run.current_task = None
+        run.current_action = None
+        run.progress_json = None
+        run.error_message = None
         db.commit()
         db.refresh(run)
+
+        _append_log_line(run.log_path, f"[{_now_str()}] runner start run={run.id}")
+
         if run.status == "cancelled":
+            _runner_cancel(run.id)
             return
 
-        command = shlex.split(settings.run_command_prefix) + [str(yaml_path.resolve())]
-        proc = subprocess.Popen(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            cwd=str(Path.cwd()),
-            start_new_session=True,
-        )
-        with _ACTIVE_LOCK:
-            _ACTIVE_PROCESSES[run.id] = proc
+        _runner_start(run.id, script.content)
 
-        report_path: str | None = None
-        summary_path: str | None = None
-        recent_lines: list[str] = []
+        terminal_status: str | None = None
+        previous_progress_signature: tuple[str | None, str | None, int, int] | None = None
+        poll_interval_sec = max(settings.runner_progress_poll_interval_ms, 200) / 1000
 
-        with log_path.open("w", encoding="utf-8") as log_file:
-            if proc.stdout:
-                for line in proc.stdout:
-                    log_file.write(line)
-                    log_file.flush()
-                    stripped = line.strip()
-                    if stripped:
-                        recent_lines.append(stripped)
-                        if len(recent_lines) > 200:
-                            recent_lines = recent_lines[-200:]
-                    if "report:" in stripped and ".html" in stripped:
-                        report_path = stripped.split("report:", 1)[1].strip()
-                    if stripped.startswith("Summary:") and ".json" in stripped:
-                        summary_path = stripped.split("Summary:", 1)[1].strip()
+        while True:
+            db.refresh(run)
+            if run.status == "cancelled":
+                _runner_cancel(run.id)
+                _append_log_line(run.log_path, f"[{_now_str()}] cancelled by user")
+                return
 
-        exit_code = proc.wait()
-        with _ACTIVE_LOCK:
-            _ACTIVE_PROCESSES.pop(run.id, None)
+            progress = _runner_progress(run.id)
+            progress_status = progress.get("status")
 
+            run.current_task = progress.get("currentTask")
+            run.current_action = progress.get("currentAction")
+            run.progress_json = json.dumps(progress, ensure_ascii=False)
+            db.commit()
+
+            completed = _safe_int(progress.get("completed"))
+            total = _safe_int(progress.get("total"))
+            signature = (run.current_task, run.current_action, completed, total)
+            if signature != previous_progress_signature:
+                _append_log_line(
+                    run.log_path,
+                    (
+                        f"[{_now_str()}] progress status={progress_status} "
+                        f"task={run.current_task or '-'} action={run.current_action or '-'} "
+                        f"completed={completed}/{total}"
+                    ),
+                )
+                previous_progress_signature = signature
+
+            if progress_status in ("success", "failed", "cancelled"):
+                terminal_status = progress_status
+                break
+
+            time.sleep(poll_interval_sec)
+
+        result = _runner_result(run.id)
         db.refresh(run)
         if run.status == "cancelled":
             return
@@ -141,18 +149,23 @@ def _execute_run(run_id: int) -> None:
         run.ended_at = datetime.utcnow()
         if run.started_at:
             run.duration_ms = int((run.ended_at - run.started_at).total_seconds() * 1000)
-        run.report_path = report_path
-        run.summary_path = summary_path
 
-        if exit_code == 0:
-            run.status = "success"
-            run.error_message = None
-        else:
-            run.status = "failed"
-            extracted_error = _extract_midscene_error_message(recent_lines)
-            run.error_message = extracted_error or f"Command exited with code {exit_code}"
+        run.report_path = result.get("reportPath")
+        run.summary_path = result.get("summaryPath")
+        run.error_message = result.get("errorMessage")
 
+        result_status = result.get("status") or terminal_status
+        if result_status not in ("success", "failed", "cancelled"):
+            result_status = "failed"
+            run.error_message = run.error_message or f"Unexpected runner status: {result.get('status')}"
+
+        run.status = result_status
         db.commit()
+
+        _append_log_line(
+            run.log_path,
+            f"[{_now_str()}] runner finished status={run.status} report={run.report_path or '-'}",
+        )
     except Exception as exc:  # noqa: BLE001
         run = db.get(Run, run_id)
         if run:
@@ -162,6 +175,7 @@ def _execute_run(run_id: int) -> None:
                 run.duration_ms = int((run.ended_at - run.started_at).total_seconds() * 1000)
             run.error_message = str(exc)
             db.commit()
+            _append_log_line(run.log_path, f"[{_now_str()}] failed error={exc}")
     finally:
         db.close()
 
@@ -184,44 +198,66 @@ def get_report_path(run: Run) -> str | None:
     return run.report_path
 
 
-def _terminate_process_tree(proc: subprocess.Popen[str]) -> None:
+def _runner_start(run_id: int, yaml_content: str) -> None:
+    _runner_request(
+        "POST",
+        "/runs/start",
+        json_body={
+            "runId": run_id,
+            "yamlContent": yaml_content,
+        },
+    )
+
+
+def _runner_progress(run_id: int) -> dict:
+    return _runner_request("GET", f"/runs/{run_id}/progress")
+
+
+def _runner_result(run_id: int) -> dict:
+    return _runner_request("GET", f"/runs/{run_id}/result")
+
+
+def _runner_cancel(run_id: int) -> None:
     try:
-        pgid = os.getpgid(proc.pid)
-        os.killpg(pgid, signal.SIGTERM)
-        for _ in range(20):
-            if proc.poll() is not None:
-                return
-            time.sleep(0.1)
-        os.killpg(pgid, signal.SIGKILL)
-    except Exception:  # noqa: BLE001
-        try:
-            proc.terminate()
-        except Exception:  # noqa: BLE001
-            return
+        _runner_request("POST", f"/runs/{run_id}/cancel")
+    except Exception:
+        # 取消是 best-effort，避免影响主流程
+        return
 
 
-def _extract_midscene_error_message(lines: list[str]) -> str | None:
-    if not lines:
-        return None
+def _runner_request(method: str, path: str, json_body: dict | None = None) -> dict:
+    url = f"{settings.runner_base_url.rstrip('/')}{path}"
+    timeout = httpx.Timeout(settings.runner_timeout_sec)
+    with httpx.Client(timeout=timeout) as client:
+        response = client.request(method, url, json=json_body)
+        response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, dict):
+            raise ValueError(f"Invalid runner response from {url}: {data}")
+        return data
 
-    # Prefer explicit stack-style error lines near the end.
-    for line in reversed(lines):
-        if line.startswith("Error: "):
-            return line.removeprefix("Error: ").strip()
 
-    # Midscene usually emits "error:" section lines.
-    for line in reversed(lines):
-        lower_line = line.lower()
-        if lower_line.startswith("error:"):
-            value = line.split(":", 1)[1].strip()
-            if value:
-                return value
+def _append_log_line(log_path: str | None, content: str) -> None:
+    if not log_path:
+        return
+    try:
+        path = Path(log_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as file:
+            file.write(content)
+            file.write("\n")
+    except Exception:
+        return
 
-    # Fallback for common android screenshot issue pattern.
-    screenshot_error = re.compile(r"Fallback screenshot validation failed:[^\n]*", re.IGNORECASE)
-    for line in reversed(lines):
-        match = screenshot_error.search(line)
-        if match:
-            return match.group(0).strip()
 
-    return None
+def _now_str() -> str:
+    return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _safe_int(value: object) -> int:
+    try:
+        if value is None:
+            return 0
+        return int(value)
+    except (TypeError, ValueError):
+        return 0

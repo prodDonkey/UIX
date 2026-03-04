@@ -13,7 +13,7 @@
 | 里程碑 | 目标 | 当前实现状态 | 备注 |
 |---|---|---|---|
 | Milestone A | Runner 服务 MVP | DOING | 已完成 A1/A2（脚手架与内存状态管理） |
-| Milestone B | backend 接入 Runner | TODO | 当前仍为 `run_service.py` 直接执行子进程 |
+| Milestone B | backend 接入 Runner | DOING | 已完成 B1-B5，B6 回归验证待补齐 |
 | Milestone C | 前端展示结构化步骤 | DOING | 已完成 Android Playground 嵌入，结构化步骤未接入 |
 | Milestone D | 联调发布与运维 | TODO | 待 A/B/C 完成后进行 |
 
@@ -102,13 +102,15 @@
 ## 4. Milestone B：ui_demo backend 接入 Runner（P0）
 
 当前进展：
-1. backend 仍使用当前执行链（直接子进程执行），未接入 Runner API。
-2. runs 模型尚未增加结构化进度字段。
-3. 本里程碑整体状态：`TODO`。
+1. 已新增 Runner 连接配置（base_url/timeout/poll interval）。
+2. 已完成 runs 模型与 schema 扩展：`current_task/current_action/progress_json`。
+3. 已将 `run_service` 执行链替换为 Runner API 调用与轮询落库。
+4. 已新增 `GET /api/runs/{id}/progress` 接口。
+5. 本里程碑整体状态：`DOING`（B6 回归测试待完善）。
 
 ## B1. backend 配置扩展
 - 优先级：P0
-- 状态：TODO
+- 状态：DONE
 - 目标：支持 Runner 连接配置。
 - 影响文件：
   - `backend/app/core/config.py`
@@ -122,7 +124,7 @@
 
 ## B2. runs 数据模型扩展
 - 优先级：P0
-- 状态：TODO
+- 状态：DONE
 - 目标：持久化结构化进度快照。
 - 影响文件：
   - `backend/app/models/run.py`
@@ -135,7 +137,7 @@
 
 ## B3. run_service 执行链替换为 Runner 调用
 - 优先级：P0
-- 状态：TODO
+- 状态：DONE
 - 目标：移除直接 `subprocess npx midscene` 主路径，改为 Runner API 驱动。
 - 影响文件：
   - `backend/app/services/run_service.py`
@@ -148,7 +150,7 @@
 
 ## B4. 取消执行链路改造
 - 优先级：P0
-- 状态：TODO
+- 状态：DONE
 - 目标：取消操作通过 Runner 生效。
 - 影响文件：
   - `backend/app/services/run_service.py`
@@ -158,7 +160,7 @@
 
 ## B5. 新增进度查询 API
 - 优先级：P0
-- 状态：TODO
+- 状态：DONE
 - 目标：提供前端稳定读取接口。
 - 影响文件：
   - `backend/app/api/runs.py`

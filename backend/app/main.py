@@ -2,6 +2,7 @@ import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import inspect, text
 
 from app.api.generate import router as generate_router
 from app.api.runs import router as runs_router
@@ -23,9 +24,32 @@ app.add_middleware(
 )
 
 
+def _ensure_runs_columns() -> None:
+    inspector = inspect(engine)
+    try:
+        existing_columns = {column["name"] for column in inspector.get_columns("runs")}
+    except Exception:  # noqa: BLE001
+        return
+
+    expected_columns = {
+        "current_task": "TEXT",
+        "current_action": "TEXT",
+        "progress_json": "TEXT",
+    }
+    missing_columns = {name: ddl for name, ddl in expected_columns.items() if name not in existing_columns}
+    if not missing_columns:
+        return
+
+    with engine.begin() as connection:
+        for column_name, ddl_type in missing_columns.items():
+            connection.execute(text(f"ALTER TABLE runs ADD COLUMN {column_name} {ddl_type}"))
+            logger.info("已自动补充 runs.%s 字段", column_name)
+
+
 @app.on_event("startup")
 def startup() -> None:
     Base.metadata.create_all(bind=engine)
+    _ensure_runs_columns()
     logger.info(
         "后端已启动：环境=%s 数据库=%s 模型已配置=%s 模型名=%s 基础地址=%s",
         settings.app_env,

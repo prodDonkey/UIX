@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.run import Run
-from app.schemas.run import RunCreateRequest, RunLogsResponse, RunRead
+from app.schemas.run import RunCreateRequest, RunLogsResponse, RunProgressRead, RunRead
 from app.services.run_service import (
     cancel_run,
     create_run,
@@ -44,6 +44,21 @@ def get_run(run_id: int, db: Session = Depends(get_db)) -> Run:
     if not run:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
     return run
+
+
+@router.get("/{run_id}/progress", response_model=RunProgressRead)
+def get_run_progress(run_id: int, db: Session = Depends(get_db)) -> RunProgressRead:
+    run = db.get(Run, run_id)
+    if not run:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+    return RunProgressRead(
+        run_id=run.id,
+        status=run.status,
+        current_task=run.current_task,
+        current_action=run.current_action,
+        progress_json=run.progress_json,
+        updated_at=run.ended_at or run.started_at,
+    )
 
 
 @router.get("/{run_id}/logs", response_model=RunLogsResponse)

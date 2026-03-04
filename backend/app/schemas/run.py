@@ -18,6 +18,9 @@ class RunRead(BaseModel):
     report_path: str | None
     summary_path: str | None
     error_message: str | None
+    current_task: str | None = None
+    current_action: str | None = None
+    progress_json: str | None = None
 
     class Config:
         from_attributes = True
@@ -26,3 +29,11 @@ class RunRead(BaseModel):
 class RunLogsResponse(BaseModel):
     content: str
 
+
+class RunProgressRead(BaseModel):
+    run_id: int
+    status: str
+    current_task: str | None = None
+    current_action: str | None = None
+    progress_json: str | None = None
+    updated_at: datetime | None = None

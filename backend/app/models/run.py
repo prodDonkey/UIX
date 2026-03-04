@@ -19,3 +19,6 @@ class Run(Base):
     report_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     summary_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    current_task: Mapped[str | None] = mapped_column(Text, nullable=True)
+    current_action: Mapped[str | None] = mapped_column(Text, nullable=True)
+    progress_json: Mapped[str | None] = mapped_column(Text, nullable=True)
