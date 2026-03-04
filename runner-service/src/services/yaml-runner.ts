@@ -56,6 +56,17 @@ export function buildProgressFromDump(executionDump: ExecutionDump): RunProgress
   };
 }
 
+export function resolveTargetDeviceId(
+  payloadDeviceId?: string | null,
+  yamlDeviceId?: string | null
+): string | undefined {
+  const fromPayload = payloadDeviceId?.trim();
+  if (fromPayload) return fromPayload;
+  const fromYaml = yamlDeviceId?.trim();
+  if (fromYaml) return fromYaml;
+  return undefined;
+}
+
 /**
  * 基于 Midscene Agent 的 YAML 执行服务：
  * - startRun：异步执行 YAML，并持续回调结构化进度
@@ -87,9 +98,19 @@ export class YamlRunner {
       let agent: Awaited<ReturnType<typeof agentFromAdbDevice>> | null = null;
       try {
         const parsed = parseYamlScript(payload.yamlContent, `run-${payload.runId}.yaml`);
-        const targetDeviceId = payload.deviceId || parsed.android?.deviceId;
-        if (!targetDeviceId) {
-          throw new Error("缺少 deviceId：请在请求或 YAML 的 android.deviceId 中提供");
+        const targetDeviceId = resolveTargetDeviceId(
+          payload.deviceId,
+          parsed.android?.deviceId
+        );
+
+        if (targetDeviceId) {
+          console.info(
+            `[yaml-runner] 使用指定设备 runId=${payload.runId}, deviceId=${targetDeviceId}`
+          );
+        } else {
+          console.info(
+            `[yaml-runner] 未指定deviceId，自动连接首台在线设备 runId=${payload.runId}`
+          );
         }
 
         agent = await agentFromAdbDevice(targetDeviceId, {

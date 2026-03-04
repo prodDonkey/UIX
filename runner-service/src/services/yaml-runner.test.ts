@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildProgressFromDump, YamlRunner } from "./yaml-runner.js";
+import {
+  buildProgressFromDump,
+  resolveTargetDeviceId,
+  YamlRunner
+} from "./yaml-runner.js";
 
 test("buildProgressFromDump computes running step and progress", () => {
   const dump = {
@@ -37,4 +41,19 @@ test("cancelRun returns false when run handle is missing", async () => {
   const runner = new YamlRunner();
   const cancelled = await runner.cancelRun(9999);
   assert.equal(cancelled, false);
+});
+
+test("resolveTargetDeviceId prefers payload value", () => {
+  const resolved = resolveTargetDeviceId("emulator-5554", "device-from-yaml");
+  assert.equal(resolved, "emulator-5554");
+});
+
+test("resolveTargetDeviceId falls back to yaml value", () => {
+  const resolved = resolveTargetDeviceId("", "device-from-yaml");
+  assert.equal(resolved, "device-from-yaml");
+});
+
+test("resolveTargetDeviceId returns undefined when both missing", () => {
+  const resolved = resolveTargetDeviceId(undefined, " ");
+  assert.equal(resolved, undefined);
 });
