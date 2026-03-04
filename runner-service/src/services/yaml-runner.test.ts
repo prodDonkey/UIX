@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildProgressFromDump,
+  normalizeUserFacingErrorMessage,
   resolveTargetDeviceId,
   YamlRunner
 } from "./yaml-runner.js";
@@ -56,4 +57,20 @@ test("resolveTargetDeviceId falls back to yaml value", () => {
 test("resolveTargetDeviceId returns undefined when both missing", () => {
   const resolved = resolveTargetDeviceId(undefined, " ");
   assert.equal(resolved, undefined);
+});
+
+test("normalizeUserFacingErrorMessage maps free-tier exhausted to Chinese hint", () => {
+  const raw =
+    'AI call error: failed to call AI model service (qwen3.5-plus): 403 The free tier of the model has been exhausted.';
+  const message = normalizeUserFacingErrorMessage(raw);
+  assert.equal(
+    message,
+    "模型调用失败：当前模型免费额度已用尽（403）。请在模型平台关闭“仅免费额度”限制或充值后重试。"
+  );
+});
+
+test("normalizeUserFacingErrorMessage trims stack trace", () => {
+  const raw = "waitFor timeout: 登录页面未出现 at ScriptPlayer.run (/x/y/z.ts:1:1)";
+  const message = normalizeUserFacingErrorMessage(raw);
+  assert.equal(message, "waitFor timeout: 登录页面未出现");
 });

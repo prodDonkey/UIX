@@ -25,6 +25,41 @@ function formatErrorMessage(error: unknown): string {
   }
 }
 
+/**
+ * 对上游模型/执行异常进行归一化，避免前端展示大段技术栈。
+ * 说明：
+ * - 日志仍会记录原始错误，便于排查；
+ * - 返回文案用于 run.error_message，强调“可操作的下一步”。
+ */
+export function normalizeUserFacingErrorMessage(rawMessage: string): string {
+  const normalizedRaw = rawMessage.trim();
+  const lower = normalizedRaw.toLowerCase();
+
+  if (
+    lower.includes("free tier of the model has been exhausted") ||
+    (lower.includes("403") && lower.includes("free tier"))
+  ) {
+    return "模型调用失败：当前模型免费额度已用尽（403）。请在模型平台关闭“仅免费额度”限制或充值后重试。";
+  }
+
+  if (
+    lower.includes("model configuration is incomplete") ||
+    lower.includes("midscene_model_name") && lower.includes("required")
+  ) {
+    return "模型配置不完整：请在 runner-service 进程环境中配置 MIDSCENE_MODEL_NAME（及对应 API_KEY/BASE_URL/FAMILY）后重试。";
+  }
+
+  // 去掉冗长堆栈，只保留业务错误主干信息。
+  const stackStart = normalizedRaw.search(/\s+at\s+[A-Za-z0-9_$.<]/);
+  const noStack = stackStart > 0 ? normalizedRaw.slice(0, stackStart).trim() : normalizedRaw;
+  const errorLabel = "Error(s) occurred in running yaml script:";
+  const labelIndex = noStack.indexOf(errorLabel);
+  if (labelIndex >= 0) {
+    return noStack.slice(labelIndex + errorLabel.length).trim() || "YAML 脚本执行失败。";
+  }
+  return noStack;
+}
+
 function extractTaskLabel(task: any): string | null {
   if (!task || typeof task !== "object") return null;
   return (
@@ -149,12 +184,15 @@ export class YamlRunner {
           return;
         }
         const reportPath = (agent as any)?.reportFile || null;
-        const message = formatErrorMessage(error);
-        console.error(`[yaml-runner] 执行失败 runId=${payload.runId}, error=${message}`);
+        const rawMessage = formatErrorMessage(error);
+        const userMessage = normalizeUserFacingErrorMessage(rawMessage);
+        console.error(
+          `[yaml-runner] 执行失败 runId=${payload.runId}, userError=${userMessage}, rawError=${rawMessage}`
+        );
         hooks.onFailed({
           reportPath,
           summaryPath: null,
-          errorMessage: message
+          errorMessage: userMessage
         });
       } finally {
         this.activeRuns.delete(payload.runId);
