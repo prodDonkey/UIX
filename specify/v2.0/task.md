@@ -8,11 +8,34 @@
 
 ---
 
-## 2. Milestone A：Runner 服务 MVP（P0）
+## 2. 功能实现状态总览
+
+| 里程碑 | 目标 | 当前实现状态 | 备注 |
+|---|---|---|---|
+| Milestone A | Runner 服务 MVP | DOING | 已完成 A1/A2（脚手架与内存状态管理） |
+| Milestone B | backend 接入 Runner | TODO | 当前仍为 `run_service.py` 直接执行子进程 |
+| Milestone C | 前端展示结构化步骤 | DOING | 已完成 Android Playground 嵌入，结构化步骤未接入 |
+| Milestone D | 联调发布与运维 | TODO | 待 A/B/C 完成后进行 |
+
+> 当前已完成的前置成果（v2.0相关）：
+> 1. 需求文档：`specify/v2.0/spec.md`
+> 2. 技术计划：`specify/v2.0/plan.md`
+> 3. 上下文续接：`specify/v2.0/context_summary.txt`
+> 4. 运行详情页已嵌入 Android Playground 画面（用于同屏观察设备）
+
+---
+
+## 3. Milestone A：Runner 服务 MVP（P0）
+
+当前进展：
+1. 需求和技术方案已完成文档化。
+2. 已完成 Runner 工程初始化（Fastify + TypeScript + 健康检查接口）。
+3. 已完成 RunManager 状态机与内存状态管理，并补齐单元测试。
+4. 本里程碑整体状态：`DOING`（A3/A4/A5 待完成）。
 
 ## A1. 初始化 runner-service 工程
 - 优先级：P0
-- 状态：TODO
+- 状态：DONE
 - 目标：完成可运行的 Node + TypeScript 服务骨架。
 - 产出：
   - `runner-service/package.json`
@@ -24,7 +47,7 @@
 
 ## A2. 定义 Runner 领域模型与内存状态管理
 - 优先级：P0
-- 状态：TODO
+- 状态：DONE
 - 目标：建立 run 生命周期模型与内存存储结构。
 - 产出：
   - `runner-service/src/types.ts`
@@ -74,7 +97,12 @@
 
 ---
 
-## 3. Milestone B：ui_demo backend 接入 Runner（P0）
+## 4. Milestone B：ui_demo backend 接入 Runner（P0）
+
+当前进展：
+1. backend 仍使用当前执行链（直接子进程执行），未接入 Runner API。
+2. runs 模型尚未增加结构化进度字段。
+3. 本里程碑整体状态：`TODO`。
 
 ## B1. backend 配置扩展
 - 优先级：P0
@@ -149,7 +177,12 @@
 
 ---
 
-## 4. Milestone C：frontend 展示当前步骤（P0）
+## 5. Milestone C：frontend 展示当前步骤（P0）
+
+当前进展：
+1. 运行详情页已完成 Android Playground 嵌入与布局调整。
+2. 当前步骤仍依赖日志文本观察，尚未接入 `/api/runs/{id}/progress`。
+3. 本里程碑整体状态：`DOING`。
 
 ## C1. 前端 API 扩展
 - 优先级：P0
@@ -195,7 +228,12 @@
 
 ---
 
-## 5. Milestone D：联调、发布与运维（P0）
+## 6. Milestone D：联调、发布与运维（P0）
+
+当前进展：
+1. 发布与回滚预案已在 `spec/plan` 定义。
+2. 需等待 Runner 与 backend/frontend 改造完成后进入联调阶段。
+3. 本里程碑整体状态：`TODO`。
 
 ## D1. 联调用例执行
 - 优先级：P0
@@ -236,14 +274,14 @@
 
 ---
 
-## 6. 并行建议
+## 7. 并行建议
 - 可并行 1：A1/A2 与 B1/B2 可并行。
 - 可并行 2：A4 完成后，B3 与 C1 可并行。
 - 可并行 3：C2 与 D1（部分用例）可并行。
 
 ---
 
-## 7. 验收总表（Checklist）
+## 8. 验收总表（Checklist）
 - [ ] Runner 服务 API 全部可用。
 - [ ] run 生命周期与步骤进度稳定。
 - [ ] 取消执行幂等且可观察。
@@ -253,10 +291,9 @@
 
 ---
 
-## 8. 预估工期（单人）
+## 9. 预估工期（单人）
 - Milestone A：1~2 天
 - Milestone B：1~2 天
 - Milestone C：0.5~1 天
 - Milestone D：1 天
 - 合计：3.5~6 天
-
