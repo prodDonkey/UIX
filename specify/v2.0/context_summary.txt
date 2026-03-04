@@ -1,0 +1,56 @@
+项目上下文摘要（v2.0，会话续接用）
+
+1) 本次目标
+- 用户希望将 ui_demo 的任务执行模块从现有 backend 内部执行（subprocess 调 npx midscene）拆分为独立 Runner 服务。
+- 诉求核心：在运行详情页中实现“与 runId 绑定的结构化实时步骤展示”，而不仅是日志文本与设备画面。
+
+2) 已完成事项
+- 已新增 v2.0 需求文档：
+  - /Users/yaohongliang/work/liuyao/AI/UI/ui_demo/specify/v2.0/spec.md
+- 文档已覆盖：
+  - 背景问题、目标、范围
+  - 架构与职责边界（frontend / ui_demo backend / runner-service / android-playground）
+  - Runner API 建议（start/progress/cancel/result）
+  - backend 数据模型/API 改造建议
+  - 前端 RunDetail 展示改造建议
+  - 迁移开关、验收标准、风险应对
+
+3) 关键结论（本次会话共识）
+- 仅嵌入 android-playground 不能天然展示“当前 runId 的结构化步骤”，因为它与 ui_demo 的 run 执行链路是解耦的。
+- 若要严格 runId 绑定步骤，必须引入“可查询进度的执行层”（推荐独立 Runner 服务）。
+
+4) 已发生的 UI 调整（ui_demo frontend）
+- RunDetail 页面已嵌入 Android Playground iframe。
+- 模块位置已按用户反馈互换：左侧主区域展示设备画面，右侧保留历史与实时日志。
+- 相关文件：
+  - /Users/yaohongliang/work/liuyao/AI/UI/ui_demo/frontend/src/pages/RunDetail.vue
+
+5) 当前实现痛点（待 v2.0 解决）
+- backend/app/services/run_service.py 仍以 subprocess 执行 npx midscene，步骤进度不可结构化查询。
+- 前端当前可见实时日志，但“当前步骤”仅能依赖日志文本，无法稳定准确。
+
+6) 建议下一步（进入实现阶段）
+- M1：先落地 runner-service 最小可用接口
+  - POST /runs/start
+  - GET /runs/:runId/progress
+  - POST /runs/:runId/cancel
+  - GET /runs/:runId/result
+- M2：ui_demo backend 接入 runner-service，替换现有 subprocess 执行链
+- M3：前端 RunDetail 增加 /api/runs/{id}/progress 展示（当前任务/动作/完成度）
+- M4：回归、灰度与 Runner 发布回滚预案验证
+
+7) 配置建议
+- ui_demo backend 新增配置项：
+  - RUNNER_BASE_URL
+  - RUNNER_TIMEOUT_SEC
+  - RUNNER_PROGRESS_POLL_INTERVAL_MS
+
+8) 本地代码状态提醒
+- ui_demo 仓库存在未提交改动（会话中观测到）：
+  - backend/prompts/yaml_system_prompt.txt
+  - frontend/src/pages/RunDetail.vue
+  - frontend/src/pages/RunList.vue
+  - frontend/src/pages/ScriptList.vue
+  - frontend/src/utils/ (新增目录)
+- 继续开发前建议先明确是否要把当前变更分批提交。
+

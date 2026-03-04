@@ -29,6 +29,7 @@ import { useRouter } from 'vue-router';
 
 import { scriptApi } from '../api/scripts';
 import { useScriptStore } from '../stores/script';
+import { formatServerDateTime } from '../utils/datetime';
 
 const store = useScriptStore();
 const router = useRouter();
@@ -54,12 +55,7 @@ function goEdit(id: number) {
 }
 
 function formatTime(_: unknown, __: unknown, value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(
-    date.getMinutes()
-  )}:${pad(date.getSeconds())}`;
+  return formatServerDateTime(value);
 }
 
 async function copyScript(id: number) {

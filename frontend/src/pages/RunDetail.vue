@@ -17,8 +17,8 @@
         <el-descriptions :column="2" border v-if="run">
           <el-descriptions-item label="脚本ID">{{ run.script_id }}</el-descriptions-item>
           <el-descriptions-item label="状态">{{ run.status }}</el-descriptions-item>
-          <el-descriptions-item label="开始时间">{{ run.started_at || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="结束时间">{{ run.ended_at || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="开始时间">{{ formatDateTime(run.started_at) }}</el-descriptions-item>
+          <el-descriptions-item label="结束时间">{{ formatDateTime(run.ended_at) }}</el-descriptions-item>
           <el-descriptions-item label="耗时(ms)">{{ run.duration_ms ?? '-' }}</el-descriptions-item>
           <el-descriptions-item label="报告路径">{{ reportInfo?.report_path || run.report_path || '-' }}</el-descriptions-item>
         </el-descriptions>
@@ -31,8 +31,11 @@
           class="error"
         />
 
-        <h4 class="title">实时日志</h4>
-        <el-input v-model="logs" type="textarea" :rows="18" readonly />
+        <h4 class="title device-title-row">
+          <span>设备实时画面</span>
+          <el-button link type="primary" @click="openAndroidPlayground">打开 Android Playground</el-button>
+        </h4>
+        <iframe :src="androidPlaygroundEmbedUrl" class="device-frame main-device-frame" />
 
         <h4 class="title">报告预览</h4>
         <div class="report-actions">
@@ -52,13 +55,22 @@
         <el-table :data="history" size="small" height="420" row-key="id">
           <el-table-column prop="id" label="Run ID" width="85" />
           <el-table-column prop="status" label="状态" width="90" />
-          <el-table-column prop="started_at" label="开始时间" min-width="150" />
+          <el-table-column prop="started_at" label="开始时间" min-width="150" :formatter="formatHistoryTime" />
           <el-table-column label="操作" width="90">
             <template #default="{ row }">
               <el-button size="small" link @click="goRun(row.id)">查看</el-button>
             </template>
           </el-table-column>
         </el-table>
+      </el-card>
+
+      <el-card class="side-card device-card">
+        <template #header>
+          <div class="device-header logs-header">
+            <strong>实时日志</strong>
+          </div>
+        </template>
+        <el-input v-model="logs" type="textarea" :rows="18" readonly />
       </el-card>
     </el-col>
   </el-row>
@@ -70,6 +82,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import { runApi, type Run, type RunReport } from '../api/runs';
+import { formatServerDateTime } from '../utils/datetime';
 
 const route = useRoute();
 const router = useRouter();
@@ -92,6 +105,9 @@ const statusTagType = computed(() => {
 
 const canCancel = computed(() => run.value?.status === 'running' || run.value?.status === 'queued');
 const canRerun = computed(() => !!run.value && !canCancel.value);
+const androidPlaygroundEmbedUrl = (
+  import.meta.env.VITE_ANDROID_PLAYGROUND_URL || 'http://127.0.0.1:5800'
+).replace(/\/+$/, '');
 
 async function refresh() {
   const detail = await runApi.detail(runId.value);
@@ -122,6 +138,14 @@ function goRun(id: number) {
   router.push({ name: 'run-detail', params: { id } });
 }
 
+function formatDateTime(value: string | null) {
+  return formatServerDateTime(value);
+}
+
+function formatHistoryTime(_: unknown, __: unknown, value: string | null) {
+  return formatServerDateTime(value);
+}
+
 function openPreview() {
   if (!reportInfo.value?.preview_url) return;
   window.open(reportInfo.value.preview_url, '_blank');
@@ -130,6 +154,10 @@ function openPreview() {
 function downloadReport() {
   if (!reportInfo.value?.download_url) return;
   window.open(reportInfo.value.download_url, '_blank');
+}
+
+function openAndroidPlayground() {
+  window.open(androidPlaygroundEmbedUrl, '_blank');
 }
 
 onMounted(async () => {
@@ -158,8 +186,21 @@ onBeforeUnmount(() => {
 .side-card {
   min-height: 600px;
 }
+.device-card {
+  margin-top: 12px;
+}
+.device-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
 .title {
   margin: 14px 0 8px;
+}
+.device-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 .error {
   margin-top: 10px;
@@ -174,5 +215,15 @@ onBeforeUnmount(() => {
   min-height: 500px;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
+}
+.device-frame {
+  width: 100%;
+  height: 480px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+}
+.main-device-frame {
+  height: 620px;
 }
 </style>

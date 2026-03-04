@@ -60,6 +60,7 @@ import { useRouter } from 'vue-router';
 
 import { runApi, type Run } from '../api/runs';
 import { scriptApi, type Script } from '../api/scripts';
+import { formatServerDateTime } from '../utils/datetime';
 
 type RunStatusTab = 'all' | 'queued' | 'running' | 'success' | 'failed' | 'cancelled';
 
@@ -98,13 +99,7 @@ function statusTagType(status: Run['status']) {
 }
 
 function formatTime(_: unknown, __: unknown, value: string | null) {
-  if (!value) return '-';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(
-    date.getMinutes()
-  )}:${pad(date.getSeconds())}`;
+  return formatServerDateTime(value);
 }
 
 function goRunDetail(runId: number) {

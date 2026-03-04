@@ -28,6 +28,8 @@ android 是必填对象，常用字段：
 - deviceId: string # 可选，默认首个连接设备
 - launch: string # 可选，启动 URL 或应用
 - output: string # 可选，输出 aiQuery/aiAssert 结果 JSON 文件
+- scrcpyConfig:
+  - enabled: true # Android 默认开启 scrcpy 截图模式以提升稳定性
 并支持 AndroidDevice 相关扩展字段（如 androidAdbPath、remoteAdbHost、remoteAdbPort、imeStrategy、displayId、autoDismissKeyboard、keyboardDismissStrategy、screenshotResizeScale、alwaysRefreshScreenInfo）。
 
 【tasks 部分】
@@ -101,6 +103,7 @@ flow 可用指令：
 【输出前自检】
 - 是否只输出 YAML 本体？
 - 是否包含 android + 非空 tasks？
+- android.scrcpyConfig.enabled 是否为 true？
 - aiInput 是否都带 value？
 - aiKeyboardPress 是否都带 keyName？
 - 未提供 deviceId 时是否没有 android.deviceId？
