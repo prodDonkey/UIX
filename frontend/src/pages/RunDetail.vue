@@ -70,6 +70,27 @@
             <strong>实时日志</strong>
           </div>
         </template>
+        <div class="progress-summary">
+          <div class="progress-title">当前步骤</div>
+          <div class="progress-line">
+            <span class="progress-label">任务</span>
+            <span class="progress-value">{{ runProgress?.current_task || '-' }}</span>
+          </div>
+          <div class="progress-line">
+            <span class="progress-label">动作</span>
+            <span class="progress-value">{{ runProgress?.current_action || '-' }}</span>
+          </div>
+          <div class="progress-line">
+            <span class="progress-label">进度</span>
+            <span class="progress-value">{{ progressCounterText }}</span>
+          </div>
+          <div v-if="recentSteps.length > 0" class="recent-steps">
+            <div class="recent-title">最近步骤</div>
+            <ul class="recent-list">
+              <li v-for="step in recentSteps" :key="step">{{ step }}</li>
+            </ul>
+          </div>
+        </div>
         <el-input v-model="logs" type="textarea" :rows="18" readonly />
       </el-card>
     </el-col>
@@ -81,7 +102,7 @@ import { ElMessage } from 'element-plus';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import { runApi, type Run, type RunReport } from '../api/runs';
+import { runApi, type Run, type RunProgress, type RunReport } from '../api/runs';
 import { formatServerDateTime } from '../utils/datetime';
 
 const route = useRoute();
@@ -92,6 +113,7 @@ const run = ref<Run | null>(null);
 const history = ref<Run[]>([]);
 const logs = ref('');
 const reportInfo = ref<RunReport | null>(null);
+const runProgress = ref<RunProgress | null>(null);
 
 let timer: number | null = null;
 
@@ -109,12 +131,56 @@ const androidPlaygroundEmbedUrl = (
   import.meta.env.VITE_ANDROID_PLAYGROUND_URL || 'http://127.0.0.1:5800'
 ).replace(/\/+$/, '');
 
+const parsedProgressPayload = computed(() => {
+  const raw = runProgress.value?.progress_json;
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as {
+      completed?: number;
+      total?: number;
+      executionDump?: {
+        tasks?: Array<{
+          status?: string;
+          type?: string;
+          subType?: string;
+          thought?: string;
+          param?: { name?: string; prompt?: string };
+        }>;
+      };
+    };
+  } catch {
+    return null;
+  }
+});
+
+const progressCounterText = computed(() => {
+  const payload = parsedProgressPayload.value;
+  if (!payload) return '-';
+  const completed = Number(payload.completed ?? 0);
+  const total = Number(payload.total ?? 0);
+  if (!total) return '-';
+  return `${completed}/${total}`;
+});
+
+const recentSteps = computed(() => {
+  const tasks = parsedProgressPayload.value?.executionDump?.tasks || [];
+  return tasks
+    .slice(-5)
+    .map((task) => task.subType || task.param?.name || task.param?.prompt || task.thought || task.type || '')
+    .filter((text) => !!text);
+});
+
 async function refresh() {
-  const detail = await runApi.detail(runId.value);
+  const [detail, progress, logData, report] = await Promise.all([
+    runApi.detail(runId.value),
+    runApi.progress(runId.value),
+    runApi.logs(runId.value),
+    runApi.report(runId.value),
+  ]);
   run.value = detail;
-  const logData = await runApi.logs(runId.value);
+  runProgress.value = progress;
   logs.value = logData.content;
-  reportInfo.value = await runApi.report(runId.value);
+  reportInfo.value = report;
   if (detail.script_id) {
     history.value = await runApi.list(detail.script_id);
   }
@@ -188,6 +254,45 @@ onBeforeUnmount(() => {
 }
 .device-card {
   margin-top: 12px;
+}
+.progress-summary {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid #ebeef5;
+  border-radius: 8px;
+  background: #fafafa;
+}
+.progress-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.progress-line {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 4px 0;
+}
+.progress-label {
+  min-width: 36px;
+  color: #909399;
+}
+.progress-value {
+  color: #303133;
+  word-break: break-word;
+}
+.recent-steps {
+  margin-top: 8px;
+}
+.recent-title {
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+.recent-list {
+  margin: 0;
+  padding-left: 16px;
+}
+.recent-list li {
+  line-height: 1.6;
 }
 .device-header {
   display: flex;

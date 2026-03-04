@@ -11,12 +11,24 @@ export type Run = {
   report_path: string | null;
   summary_path: string | null;
   error_message: string | null;
+  current_task?: string | null;
+  current_action?: string | null;
+  progress_json?: string | null;
 };
 
 export type RunReport = {
   report_path: string | null;
   preview_url: string | null;
   download_url: string | null;
+};
+
+export type RunProgress = {
+  run_id: number;
+  status: 'queued' | 'running' | 'success' | 'failed' | 'cancelled';
+  current_task: string | null;
+  current_action: string | null;
+  progress_json: string | null;
+  updated_at: string | null;
 };
 
 export const runApi = {
@@ -36,6 +48,10 @@ export const runApi = {
   },
   async logs(runId: number): Promise<{ content: string }> {
     const { data } = await http.get(`/api/runs/${runId}/logs`);
+    return data;
+  },
+  async progress(runId: number): Promise<RunProgress> {
+    const { data } = await http.get(`/api/runs/${runId}/progress`);
     return data;
   },
   async cancel(runId: number): Promise<Run> {

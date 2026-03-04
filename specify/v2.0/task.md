@@ -14,7 +14,7 @@
 |---|---|---|---|
 | Milestone A | Runner 服务 MVP | DOING | 已完成 A1/A2（脚手架与内存状态管理） |
 | Milestone B | backend 接入 Runner | DOING | 已完成 B1-B5，B6 回归验证待补齐 |
-| Milestone C | 前端展示结构化步骤 | DOING | 已完成 Android Playground 嵌入，结构化步骤未接入 |
+| Milestone C | 前端展示结构化步骤 | DOING | 已完成 C1/C2，轮询优化与体验优化待做 |
 | Milestone D | 联调发布与运维 | TODO | 待 A/B/C 完成后进行 |
 
 > 当前已完成的前置成果（v2.0相关）：
@@ -185,12 +185,13 @@
 
 当前进展：
 1. 运行详情页已完成 Android Playground 嵌入与布局调整。
-2. 当前步骤仍依赖日志文本观察，尚未接入 `/api/runs/{id}/progress`。
-3. 本里程碑整体状态：`DOING`。
+2. 已接入 `/api/runs/{id}/progress`，可展示当前任务、当前动作与完成度。
+3. 已增加最近步骤展示（基于 `progress_json.executionDump.tasks`）。
+4. 本里程碑整体状态：`DOING`（C3/C4 待完成）。
 
 ## C1. 前端 API 扩展
 - 优先级：P0
-- 状态：TODO
+- 状态：DONE
 - 目标：封装 progress 查询。
 - 影响文件：
   - `frontend/src/api/runs.ts`
@@ -199,7 +200,7 @@
 
 ## C2. RunDetail 增加结构化步骤面板
 - 优先级：P0
-- 状态：TODO
+- 状态：DONE
 - 目标：在运行详情展示 runId 绑定步骤。
 - 影响文件：
   - `frontend/src/pages/RunDetail.vue`
