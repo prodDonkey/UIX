@@ -299,12 +299,17 @@
 ---
 
 ## 8. 验收总表（Checklist）
-- [ ] Runner 服务 API 全部可用。
-- [ ] run 生命周期与步骤进度稳定。
-- [ ] 取消执行幂等且可观察。
-- [ ] 前端运行详情可见 runId 绑定步骤。
-- [ ] Android 画面 + 当前步骤 + 日志同屏联动可用。
+- [x] Runner 服务 API 全部可用。
+- [x] run 生命周期与步骤进度稳定。
+- [x] 取消执行幂等且可观察。
+- [x] 前端运行详情可见 runId 绑定步骤。
+- [x] Android 画面 + 当前步骤 + 日志同屏联动可用。
 - [x] 文档与运维预案完整。
+
+验收执行记录（2026-03-04）：
+- `runner-service`：`npm test` 通过（6/6）。
+- `backend`：`uv run python -m compileall app` 通过。
+- `frontend`：`npm run build` 通过。
 
 ---
 
