@@ -8,6 +8,7 @@
             <div class="actions">
               <el-tag :type="statusTagType">{{ run?.status ?? 'unknown' }}</el-tag>
               <el-button @click="refresh">刷新</el-button>
+              <el-button type="primary" plain :disabled="!canRerun" @click="rerun">重新执行</el-button>
               <el-button type="danger" plain :disabled="!canCancel" @click="cancelRun">取消执行</el-button>
             </div>
           </div>
@@ -90,6 +91,7 @@ const statusTagType = computed(() => {
 });
 
 const canCancel = computed(() => run.value?.status === 'running' || run.value?.status === 'queued');
+const canRerun = computed(() => !!run.value && !canCancel.value);
 
 async function refresh() {
   const detail = await runApi.detail(runId.value);
@@ -105,6 +107,14 @@ async function refresh() {
 async function cancelRun() {
   await runApi.cancel(runId.value);
   ElMessage.success('已发送取消请求');
+  await refresh();
+}
+
+async function rerun() {
+  if (!run.value) return;
+  const created = await runApi.create(run.value.script_id);
+  ElMessage.success(`已创建重试任务 #${created.id}`);
+  await router.push({ name: 'run-detail', params: { id: created.id } });
   await refresh();
 }
 

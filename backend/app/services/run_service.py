@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 import os
 from pathlib import Path
+import re
 import shlex
 import signal
 import subprocess
@@ -112,6 +113,7 @@ def _execute_run(run_id: int) -> None:
 
         report_path: str | None = None
         summary_path: str | None = None
+        recent_lines: list[str] = []
 
         with log_path.open("w", encoding="utf-8") as log_file:
             if proc.stdout:
@@ -119,6 +121,10 @@ def _execute_run(run_id: int) -> None:
                     log_file.write(line)
                     log_file.flush()
                     stripped = line.strip()
+                    if stripped:
+                        recent_lines.append(stripped)
+                        if len(recent_lines) > 200:
+                            recent_lines = recent_lines[-200:]
                     if "report:" in stripped and ".html" in stripped:
                         report_path = stripped.split("report:", 1)[1].strip()
                     if stripped.startswith("Summary:") and ".json" in stripped:
@@ -143,7 +149,8 @@ def _execute_run(run_id: int) -> None:
             run.error_message = None
         else:
             run.status = "failed"
-            run.error_message = f"Command exited with code {exit_code}"
+            extracted_error = _extract_midscene_error_message(recent_lines)
+            run.error_message = extracted_error or f"Command exited with code {exit_code}"
 
         db.commit()
     except Exception as exc:  # noqa: BLE001
@@ -191,3 +198,30 @@ def _terminate_process_tree(proc: subprocess.Popen[str]) -> None:
             proc.terminate()
         except Exception:  # noqa: BLE001
             return
+
+
+def _extract_midscene_error_message(lines: list[str]) -> str | None:
+    if not lines:
+        return None
+
+    # Prefer explicit stack-style error lines near the end.
+    for line in reversed(lines):
+        if line.startswith("Error: "):
+            return line.removeprefix("Error: ").strip()
+
+    # Midscene usually emits "error:" section lines.
+    for line in reversed(lines):
+        lower_line = line.lower()
+        if lower_line.startswith("error:"):
+            value = line.split(":", 1)[1].strip()
+            if value:
+                return value
+
+    # Fallback for common android screenshot issue pattern.
+    screenshot_error = re.compile(r"Fallback screenshot validation failed:[^\n]*", re.IGNORECASE)
+    for line in reversed(lines):
+        match = screenshot_error.search(line)
+        if match:
+            return match.group(0).strip()
+
+    return None

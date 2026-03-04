@@ -96,6 +96,8 @@ flow 可用指令：
 2. 对关键节点添加 aiWaitFor + aiAssert。
 3. 步骤要短、单一意图、可执行。
 4. 不要虚构字段，不要输出无关平台配置。
+5. Android 场景中涉及“先定位再输入文字”的步骤（如搜索）优先合并为单条 aiAct（例如“点击搜索并输入关键词后执行搜索”），尽量避免 aiTap + aiInput + aiKeyboardPress 的组合，以提升 auto-glm 兼容性。
+6. 若需求涉及“上门超人”App，必须使用其包名启动应用：`launch: com.zhaoliangji.supermancall`（不要使用其他包名或应用名占位符）。
 
 【输出前自检】
 - 是否只输出 YAML 本体？
