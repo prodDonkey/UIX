@@ -1,6 +1,7 @@
 import type {
   RunProgressPatch,
   RunResultPayload,
+  RunStreamEvent,
   RunSnapshot,
   RunStartPayload,
   RunStatus
@@ -43,6 +44,11 @@ export function isTerminalStatus(status: RunStatus): boolean {
 
 export class RunManager {
   private readonly runs = new Map<number, RunRecord>();
+  /**
+   * run 维度订阅器，用于 SSE 实时推送。
+   * key: runId, value: 该 run 的监听回调集合
+   */
+  private readonly listeners = new Map<number, Set<(event: RunStreamEvent) => void>>();
 
   createRun(payload: RunStartPayload): RunSnapshot {
     const existing = this.runs.get(payload.runId);
@@ -77,7 +83,9 @@ export class RunManager {
     };
     this.runs.set(payload.runId, next);
     console.info(`[run-manager] 创建run成功 runId=${payload.runId}, status=queued`);
-    return this.toSnapshot(next);
+    const snapshot = this.toSnapshot(next);
+    this.emit(payload.runId, { type: "snapshot", run: snapshot });
+    return snapshot;
   }
 
   startRun(runId: number): RunSnapshot {
@@ -101,7 +109,9 @@ export class RunManager {
     run.startedAt = run.startedAt || now;
     run.updatedAt = now;
     console.info(`[run-manager] run进入running runId=${runId}`);
-    return this.toSnapshot(run);
+    const snapshot = this.toSnapshot(run);
+    this.emit(runId, { type: "snapshot", run: snapshot });
+    return snapshot;
   }
 
   updateProgress(runId: number, patch: RunProgressPatch): RunSnapshot {
@@ -140,7 +150,9 @@ export class RunManager {
     console.info(
       `[run-manager] 更新progress runId=${runId}, completed=${run.completed}, total=${run.total}, task=${run.currentTask ?? "-"}, action=${run.currentAction ?? "-"}`
     );
-    return this.toSnapshot(run);
+    const snapshot = this.toSnapshot(run);
+    this.emit(runId, { type: "progress", run: snapshot });
+    return snapshot;
   }
 
   markSuccess(runId: number, payload: RunResultPayload = {}): RunSnapshot {
@@ -167,7 +179,9 @@ export class RunManager {
     run.endedAt = now;
     run.updatedAt = now;
     console.info(`[run-manager] run执行成功 runId=${runId}`);
-    return this.toSnapshot(run);
+    const snapshot = this.toSnapshot(run);
+    this.emit(runId, { type: "done", run: snapshot });
+    return snapshot;
   }
 
   markFailed(runId: number, payload: RunResultPayload = {}): RunSnapshot {
@@ -196,7 +210,9 @@ export class RunManager {
     console.error(
       `[run-manager] run执行失败 runId=${runId}, error=${run.errorMessage ?? "-"}`
     );
-    return this.toSnapshot(run);
+    const snapshot = this.toSnapshot(run);
+    this.emit(runId, { type: "done", run: snapshot });
+    return snapshot;
   }
 
   cancelRun(runId: number): RunSnapshot {
@@ -220,7 +236,9 @@ export class RunManager {
     run.endedAt = now;
     run.updatedAt = now;
     console.info(`[run-manager] run已取消 runId=${runId}`);
-    return this.toSnapshot(run);
+    const snapshot = this.toSnapshot(run);
+    this.emit(runId, { type: "done", run: snapshot });
+    return snapshot;
   }
 
   getRun(runId: number): RunSnapshot | null {
@@ -233,6 +251,28 @@ export class RunManager {
     return [...this.runs.values()]
       .sort((a, b) => b.runId - a.runId)
       .map((run) => this.toSnapshot(run));
+  }
+
+  /**
+   * 订阅某个 run 的状态流，返回取消订阅函数。
+   */
+  subscribe(runId: number, listener: (event: RunStreamEvent) => void): () => void {
+    const set = this.listeners.get(runId) ?? new Set<(event: RunStreamEvent) => void>();
+    set.add(listener);
+    this.listeners.set(runId, set);
+    console.info(`[run-manager] 新增订阅 runId=${runId}, listeners=${set.size}`);
+
+    return () => {
+      const currentSet = this.listeners.get(runId);
+      if (!currentSet) return;
+      currentSet.delete(listener);
+      if (currentSet.size === 0) {
+        this.listeners.delete(runId);
+      }
+      console.info(
+        `[run-manager] 取消订阅 runId=${runId}, listeners=${currentSet.size}`
+      );
+    };
   }
 
   private getMutableOrThrow(runId: number): RunRecord {
@@ -252,5 +292,19 @@ export class RunManager {
       endedAt: run.endedAt?.toISOString() ?? null,
       updatedAt: run.updatedAt.toISOString()
     };
+  }
+
+  private emit(runId: number, event: RunStreamEvent): void {
+    const set = this.listeners.get(runId);
+    if (!set || set.size === 0) return;
+    for (const listener of set) {
+      try {
+        listener(event);
+      } catch (error) {
+        console.warn(
+          `[run-manager] 推送事件失败 runId=${runId}, error=${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    }
   }
 }

@@ -72,7 +72,7 @@
           </div>
         </template>
         <div class="progress-summary">
-          <div class="progress-title">当前步骤</div>
+          <div class="progress-title">Playground 执行流</div>
           <div class="progress-line">
             <span class="progress-label">任务</span>
             <span class="progress-value">{{ runProgress?.current_task || '-' }}</span>
@@ -85,31 +85,36 @@
             <span class="progress-label">进度</span>
             <span class="progress-value">{{ progressCounterText }}</span>
           </div>
-          <div v-if="recentSteps.length > 0" class="recent-steps">
-            <div class="recent-title">最近步骤</div>
+          <div v-if="playgroundSteps.length > 0" class="playground-stream">
+            <div
+              v-for="(step, index) in playgroundSteps"
+              :key="`${index}-${step.action}-${step.status}`"
+              :class="[
+                'stream-card',
+                { 'latest-step': index === playgroundSteps.length - 1, 'error-step': step.isError },
+              ]"
+            >
+              <div class="stream-card-header">
+                <span class="stream-action">{{ step.action }}</span>
+                <span class="stream-status">{{ stepStatusText(step.status) }}</span>
+              </div>
+              <div v-if="step.description" class="stream-description">{{ step.description }}</div>
+              <pre v-if="step.paramsJson" class="stream-params">{{ step.paramsJson }}</pre>
+              <div v-if="step.errorMessage" class="stream-error">{{ step.errorMessage }}</div>
+              <el-button link size="small" type="primary" class="locate-log-btn" @click="locateStepLog(step)">
+                定位日志
+              </el-button>
+            </div>
+          </div>
+          <div v-else class="no-steps">暂无执行步骤</div>
+          <div class="recent-steps">
+            <div class="recent-title">步骤列表（简版）</div>
             <ul class="recent-list">
-              <li
-                v-for="(step, index) in recentSteps"
-                :key="`${index}-${step.label}-${step.status}`"
-                :class="{
-                  'latest-step': index === recentSteps.length - 1,
-                  'error-step': step.isError,
-                  'running-step': step.isRunning,
-                }"
-              >
+              <li v-for="(step, index) in recentSteps" :key="`${index}-${step.label}-${step.status}`">
                 <div class="step-main">
                   <span class="step-text">{{ step.label }}</span>
                   <span class="step-status">{{ stepStatusText(step.status) }}</span>
                 </div>
-                <el-button
-                  link
-                  size="small"
-                  type="primary"
-                  class="locate-log-btn"
-                  @click="locateStepLog(step)"
-                >
-                  定位日志
-                </el-button>
               </li>
             </ul>
           </div>
@@ -156,6 +161,8 @@ const canRerun = computed(() => !!run.value && !canCancel.value);
 const androidPlaygroundEmbedUrl = (
   import.meta.env.VITE_ANDROID_PLAYGROUND_URL || 'http://127.0.0.1:5800'
 ).replace(/\/+$/, '');
+const runnerBaseUrl = (import.meta.env.VITE_RUNNER_BASE_URL || 'http://127.0.0.1:8787').replace(/\/+$/, '');
+let progressStream: EventSource | null = null;
 
 const parsedProgressPayload = computed(() => {
   const raw = runProgress.value?.progress_json;
@@ -196,6 +203,16 @@ type RecentStepItem = {
   isRunning: boolean;
 };
 
+type PlaygroundStepItem = {
+  action: string;
+  description: string;
+  status: string;
+  paramsJson: string;
+  errorMessage: string;
+  keyword: string;
+  isError: boolean;
+};
+
 function resolveStepLabel(task: {
   type?: string;
   subType?: string;
@@ -224,6 +241,41 @@ const recentSteps = computed(() => {
     .filter((item): item is RecentStepItem => !!item);
 });
 
+function stringifyPayload(value: unknown): string {
+  if (value === undefined || value === null) return '';
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+const playgroundSteps = computed(() => {
+  const tasks = parsedProgressPayload.value?.executionDump?.tasks || [];
+  return tasks
+    .slice(-12)
+    .map((task): PlaygroundStepItem | null => {
+      const action = task.type || 'Action';
+      const description = resolveStepLabel(task);
+      const status = task.status || 'unknown';
+      const errorMessage = stringifyPayload((task as any).error || '');
+      const paramsJson = stringifyPayload((task as any).param || '');
+      const keyword = description || action;
+      if (!keyword) return null;
+      return {
+        action,
+        description,
+        status,
+        paramsJson,
+        errorMessage,
+        keyword,
+        isError: status === 'failed' || status === 'cancelled',
+      };
+    })
+    .filter((item): item is PlaygroundStepItem => !!item);
+});
+
 function stepStatusText(status: string) {
   if (status === 'running') return '执行中';
   if (status === 'finished' || status === 'success') return '已完成';
@@ -232,7 +284,7 @@ function stepStatusText(status: string) {
   return status;
 }
 
-function locateStepLog(step: RecentStepItem) {
+function locateStepLog(step: { keyword: string }) {
   if (!step.keyword) {
     ElMessage.warning('该步骤缺少可定位关键字');
     return;
@@ -254,6 +306,67 @@ function locateStepLog(step: RecentStepItem) {
     textarea.scrollTop = Math.max(linesBefore * 20 - 40, 0);
   });
   ElMessage.success(`已定位日志关键字：${step.keyword}`);
+}
+
+/**
+ * 将 runner-service SSE 事件映射为当前页面使用的 progress 结构。
+ * 这样可以复用现有解析逻辑，不破坏后端接口兼容。
+ */
+function applyRunnerProgressEvent(payload: Record<string, any>) {
+  const progressPayload = {
+    status: payload.status,
+    currentTask: payload.currentTask ?? null,
+    currentAction: payload.currentAction ?? null,
+    completed: Number(payload.completed ?? 0),
+    total: Number(payload.total ?? 0),
+    executionDump: payload.executionDump ?? null,
+    updatedAt: payload.updatedAt ?? null,
+  };
+  runProgress.value = {
+    run_id: Number(payload.runId ?? runId.value),
+    status: progressPayload.status,
+    current_task: progressPayload.currentTask,
+    current_action: progressPayload.currentAction,
+    progress_json: JSON.stringify(progressPayload),
+    updated_at: progressPayload.updatedAt,
+  };
+}
+
+function closeProgressStream() {
+  if (!progressStream) return;
+  progressStream.close();
+  progressStream = null;
+}
+
+function setupProgressStream() {
+  closeProgressStream();
+  const currentRunId = runId.value;
+  if (!Number.isFinite(currentRunId) || currentRunId <= 0) return;
+  const streamUrl = `${runnerBaseUrl}/runs/${currentRunId}/stream`;
+  const stream = new EventSource(streamUrl);
+  progressStream = stream;
+
+  const eventHandler = (event: MessageEvent) => {
+    try {
+      const payload = JSON.parse(event.data);
+      applyRunnerProgressEvent(payload);
+      if (payload?.status === 'success' || payload?.status === 'failed' || payload?.status === 'cancelled') {
+        // 终态后主动刷新一次详情，确保报告/耗时等字段一致。
+        refresh().catch(() => undefined);
+      }
+    } catch (error) {
+      console.warn('[RunDetail] 解析runner进度事件失败', error);
+    }
+  };
+
+  stream.addEventListener('snapshot', eventHandler);
+  stream.addEventListener('progress', eventHandler);
+  stream.addEventListener('done', eventHandler);
+  stream.onerror = () => {
+    // 流式通道断开时不打断主流程，轮询会继续兜底。
+    console.warn(`[RunDetail] runner stream disconnected runId=${currentRunId}`);
+    closeProgressStream();
+  };
 }
 
 async function refresh() {
@@ -332,11 +445,13 @@ function openAndroidPlayground() {
 
 onMounted(async () => {
   stopped = false;
+  setupProgressStream();
   await pollingLoop();
 });
 
 onBeforeUnmount(() => {
   stopped = true;
+  closeProgressStream();
   if (timer) window.clearTimeout(timer);
 });
 </script>
@@ -385,6 +500,71 @@ onBeforeUnmount(() => {
 }
 .recent-steps {
   margin-top: 8px;
+}
+.playground-stream {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.stream-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #ffffff;
+}
+.stream-card.latest-step {
+  border-color: #409eff;
+}
+.stream-card.error-step {
+  border-color: #f56c6c;
+  background: #fff6f6;
+}
+.stream-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.stream-action {
+  font-weight: 600;
+  color: #303133;
+}
+.stream-status {
+  color: #909399;
+  font-size: 12px;
+}
+.stream-description {
+  margin-top: 6px;
+  color: #303133;
+  line-height: 1.5;
+}
+.stream-params {
+  margin: 6px 0 0;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid #edf2f7;
+  background: #f8fafc;
+  font-size: 12px;
+  color: #374151;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.stream-error {
+  margin-top: 6px;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+}
+.no-steps {
+  margin-top: 8px;
+  color: #909399;
+  font-size: 13px;
 }
 .recent-title {
   font-weight: 500;
