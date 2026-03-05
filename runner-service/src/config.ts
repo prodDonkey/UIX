@@ -29,6 +29,14 @@ function ensureEnvLoaded(): void {
     console.info(`[runner-config] 已加载环境变量兜底文件: ${backendEnvPath}`);
   }
 
+  // 报告产物默认写入 backend/midscene_run，避免预览接口触发“Report path not allowed”。
+  if (!process.env.MIDSCENE_RUN_DIR) {
+    process.env.MIDSCENE_RUN_DIR = resolve(currentDir, "../../backend/midscene_run");
+    console.info(
+      `[runner-config] 未配置MIDSCENE_RUN_DIR，已使用默认目录: ${process.env.MIDSCENE_RUN_DIR}`
+    );
+  }
+
   envLoaded = true;
 }
 
