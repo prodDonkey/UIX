@@ -20,6 +20,7 @@ class RunRead(BaseModel):
     error_message: str | None
     current_task: str | None = None
     current_action: str | None = None
+    remark: str | None = None
 
     class Config:
         from_attributes = True
@@ -38,6 +39,7 @@ class RunListRead(BaseModel):
     ended_at: datetime | None
     duration_ms: int | None
     error_message: str | None
+    remark: str | None = None
 
     class Config:
         from_attributes = True
@@ -54,3 +56,7 @@ class RunProgressRead(BaseModel):
     current_action: str | None = None
     progress_json: str | None = None
     updated_at: datetime | None = None
+
+
+class RunRemarkUpdateRequest(BaseModel):
+    remark: str | None = Field(default=None, max_length=500)

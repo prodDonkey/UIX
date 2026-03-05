@@ -40,6 +40,7 @@ def list_runs(db: Session, script_id: int | None = None, limit: int = 200) -> li
                 Run.ended_at,
                 Run.duration_ms,
                 Run.error_message,
+                Run.remark,
             )
         )
         .order_by(Run.id.desc())

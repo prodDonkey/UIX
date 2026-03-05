@@ -22,3 +22,4 @@ class Run(Base):
     current_task: Mapped[str | None] = mapped_column(Text, nullable=True)
     current_action: Mapped[str | None] = mapped_column(Text, nullable=True)
     progress_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    remark: Mapped[str | None] = mapped_column(Text, nullable=True)

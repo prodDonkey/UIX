@@ -25,6 +25,7 @@
           <el-descriptions-item label="结束时间">{{ formatDateTime(run.ended_at) }}</el-descriptions-item>
           <el-descriptions-item label="耗时(ms)">{{ run.duration_ms ?? '-' }}</el-descriptions-item>
           <el-descriptions-item label="报告路径">{{ reportInfo?.report_path || run.report_path || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="备注">{{ run.remark || '-' }}</el-descriptions-item>
         </el-descriptions>
 
         <el-alert
@@ -60,9 +61,15 @@
           <el-table-column prop="id" label="Run ID" width="85" />
           <el-table-column prop="status" label="状态" width="90" />
           <el-table-column prop="started_at" label="开始时间" min-width="150" :formatter="formatHistoryTime" />
-          <el-table-column label="操作" width="90">
+          <el-table-column label="备注" min-width="140" show-overflow-tooltip>
+            <template #default="{ row }">
+              {{ row.remark || '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="130">
             <template #default="{ row }">
               <el-button size="small" link @click="goRun(row.id)">查看</el-button>
+              <el-button size="small" link type="primary" @click="editRemark(row)">备注</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -130,7 +137,7 @@
 </template>
 
 <script setup lang="ts">
-import { ElMessage, type InputInstance } from 'element-plus';
+import { ElMessage, ElMessageBox, type InputInstance } from 'element-plus';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
@@ -485,6 +492,33 @@ async function rerun() {
     ElMessage.error('重新执行失败，请稍后重试');
   } finally {
     isRerunning.value = false;
+  }
+}
+
+async function editRemark(targetRun: Run) {
+  try {
+    const { value } = await ElMessageBox.prompt('请输入备注内容（最多500字）', `备注 Run #${targetRun.id}`, {
+      confirmButtonText: '保存',
+      cancelButtonText: '取消',
+      inputType: 'textarea',
+      inputValue: targetRun.remark || '',
+      inputPlaceholder: '例如：本次执行用于回归验证，登录页网络波动',
+      inputValidator: (inputValue) => {
+        if (inputValue.length > 500) {
+          return '备注不能超过500字';
+        }
+        return true;
+      },
+    });
+    const saved = await runApi.updateRemark(targetRun.id, value);
+    const row = history.value.find((item) => item.id === targetRun.id);
+    if (row) row.remark = saved.remark ?? null;
+    if (run.value?.id === targetRun.id) run.value.remark = saved.remark ?? null;
+    ElMessage.success('备注已保存');
+  } catch (error: any) {
+    if (error === 'cancel' || error === 'close') return;
+    console.error('[RunDetail] 更新备注失败', error);
+    ElMessage.error('保存备注失败，请稍后重试');
   }
 }
 

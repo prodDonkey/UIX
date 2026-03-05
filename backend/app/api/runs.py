@@ -1,3 +1,4 @@
+import logging
 import json
 from pathlib import Path
 
@@ -8,7 +9,14 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.run import Run
-from app.schemas.run import RunCreateRequest, RunListRead, RunLogsResponse, RunProgressRead, RunRead
+from app.schemas.run import (
+    RunCreateRequest,
+    RunListRead,
+    RunLogsResponse,
+    RunProgressRead,
+    RunRead,
+    RunRemarkUpdateRequest,
+)
 from app.services.run_service import (
     cancel_run,
     create_run,
@@ -19,6 +27,7 @@ from app.services.run_service import (
 )
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
+logger = logging.getLogger("uvicorn.error")
 
 
 @router.get("", response_model=list[RunListRead])
@@ -81,6 +90,21 @@ def cancel_run_task(run_id: int, db: Session = Depends(get_db)) -> Run:
     run = cancel_run(db, run_id)
     if not run:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+    return run
+
+
+@router.patch("/{run_id}/remark", response_model=RunRead)
+def update_run_remark(run_id: int, payload: RunRemarkUpdateRequest, db: Session = Depends(get_db)) -> Run:
+    run = db.get(Run, run_id)
+    if not run:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+
+    # 备注支持清空，统一将空白字符串落为 null，便于前端判断“无备注”。
+    normalized_remark = payload.remark.strip() if isinstance(payload.remark, str) else None
+    run.remark = normalized_remark or None
+    db.commit()
+    db.refresh(run)
+    logger.info("运行备注已更新 runId=%s hasRemark=%s", run_id, bool(run.remark))
     return run
 
 

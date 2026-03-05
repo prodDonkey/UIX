@@ -35,6 +35,7 @@ def _ensure_runs_columns() -> None:
         "current_task": "TEXT",
         "current_action": "TEXT",
         "progress_json": "TEXT",
+        "remark": "TEXT",
     }
     missing_columns = {name: ddl for name, ddl in expected_columns.items() if name not in existing_columns}
     if not missing_columns:

@@ -14,6 +14,7 @@ export type Run = {
   current_task?: string | null;
   current_action?: string | null;
   progress_json?: string | null;
+  remark?: string | null;
 };
 
 export type RunReport = {
@@ -62,6 +63,10 @@ export const runApi = {
   },
   async report(runId: number): Promise<RunReport> {
     const { data } = await http.get(`/api/runs/${runId}/report`);
+    return data;
+  },
+  async updateRemark(runId: number, remark: string | null): Promise<Run> {
+    const { data } = await http.patch(`/api/runs/${runId}/remark`, { remark });
     return data;
   },
 };
