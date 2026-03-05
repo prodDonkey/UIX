@@ -130,12 +130,21 @@ def _execute_run(run_id: int) -> None:
                 total = _safe_int(progress.get("total"))
                 signature = (run.current_task, run.current_action, completed, total)
             if signature != previous_progress_signature:
+                latest_task_cost_ms, latest_task_name = _extract_latest_task_cost(progress)
+                elapsed_ms = _compute_elapsed_ms(started_at)
+                extra_cost = (
+                    f" step_cost_ms={latest_task_cost_ms}"
+                    if latest_task_cost_ms is not None
+                    else ""
+                )
+                extra_step = f" latest_step={latest_task_name}" if latest_task_name else ""
+                extra_elapsed = f" elapsed_ms={elapsed_ms}" if elapsed_ms is not None else ""
                 _append_log_line(
                     log_path,
                     (
                         f"[{_now_str()}] progress status={progress_status} "
                         f"task={signature[0] or '-'} action={signature[1] or '-'} "
-                        f"completed={completed}/{total}"
+                        f"completed={completed}/{total}{extra_elapsed}{extra_cost}{extra_step}"
                     ),
                 )
                 previous_progress_signature = signature
@@ -272,3 +281,42 @@ def _safe_int(value: object) -> int:
         return int(value)
     except (TypeError, ValueError):
         return 0
+
+
+def _extract_latest_task_cost(progress: dict) -> tuple[int | None, str | None]:
+    """
+    从 runner progress 中提取最近任务的耗时信息。
+    返回：(latest_task_cost_ms, latest_task_name)
+    """
+    execution_dump = progress.get("executionDump")
+    if not isinstance(execution_dump, dict):
+        return None, None
+    tasks = execution_dump.get("tasks")
+    if not isinstance(tasks, list) or not tasks:
+        return None, None
+    latest_task = tasks[-1]
+    if not isinstance(latest_task, dict):
+        return None, None
+
+    timing = latest_task.get("timing")
+    cost_ms: int | None = None
+    if isinstance(timing, dict):
+        cost_raw = timing.get("cost")
+        try:
+            if cost_raw is not None:
+                cost_ms = int(cost_raw)
+        except (TypeError, ValueError):
+            cost_ms = None
+
+    task_name = (
+        latest_task.get("subType")
+        or latest_task.get("type")
+        or (latest_task.get("param") or {}).get("name")
+    )
+    return cost_ms, task_name if isinstance(task_name, str) else None
+
+
+def _compute_elapsed_ms(started_at: datetime | None) -> int | None:
+    if not started_at:
+        return None
+    return int((datetime.utcnow() - started_at).total_seconds() * 1000)
