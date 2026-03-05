@@ -20,7 +20,6 @@ class RunRead(BaseModel):
     error_message: str | None
     current_task: str | None = None
     current_action: str | None = None
-    progress_json: str | None = None
 
     class Config:
         from_attributes = True

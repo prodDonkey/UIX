@@ -121,11 +121,31 @@ def _execute_run(run_id: int) -> None:
 
         terminal_status: str | None = None
         previous_progress_signature: tuple[str | None, str | None, int, int] | None = None
+        heartbeat_interval_sec = 10
+        last_progress_log_time = time.time()
+        transient_progress_error_count = 0
+        max_transient_progress_errors = 10
         poll_interval_sec = max(settings.runner_progress_poll_interval_ms, 200) / 1000
 
         while True:
             # 先从 runner 拉进度，再落库，避免数据库连接在网络请求期间被占用。
-            progress = _runner_progress(run_id)
+            try:
+                progress = _runner_progress(run_id)
+                transient_progress_error_count = 0
+            except Exception as exc:  # noqa: BLE001
+                transient_progress_error_count += 1
+                _append_log_line(
+                    log_path,
+                    (
+                        f"[{_now_str()}] progress fetch error "
+                        f"count={transient_progress_error_count}/{max_transient_progress_errors} "
+                        f"error={exc}"
+                    ),
+                )
+                if transient_progress_error_count >= max_transient_progress_errors:
+                    raise
+                time.sleep(poll_interval_sec)
+                continue
             progress_status = progress.get("status")
 
             with SessionLocal() as db:
@@ -164,6 +184,20 @@ def _execute_run(run_id: int) -> None:
                     ),
                 )
                 previous_progress_signature = signature
+                last_progress_log_time = time.time()
+            elif time.time() - last_progress_log_time >= heartbeat_interval_sec:
+                # 长步骤（如模型定位）期间补充心跳日志，避免误判为“卡死”。
+                elapsed_ms = _compute_elapsed_ms(started_at)
+                extra_elapsed = f" elapsed_ms={elapsed_ms}" if elapsed_ms is not None else ""
+                _append_log_line(
+                    log_path,
+                    (
+                        f"[{_now_str()}] progress heartbeat status={progress_status} "
+                        f"task={signature[0] or '-'} action={signature[1] or '-'} "
+                        f"completed={completed}/{total}{extra_elapsed}"
+                    ),
+                )
+                last_progress_log_time = time.time()
 
             if progress_status in ("success", "failed", "cancelled"):
                 terminal_status = progress_status
@@ -216,13 +250,22 @@ def _execute_run(run_id: int) -> None:
                 _append_log_line(run.log_path or log_path, f"[{_now_str()}] failed error={exc}")
 
 
-def read_run_logs(run: Run) -> str:
+def read_run_logs(run: Run, tail_bytes: int = 50_000) -> str:
     if not run.log_path:
         return ""
     path = Path(run.log_path)
     if not path.exists() or not path.is_file():
         return ""
-    return path.read_text(encoding="utf-8", errors="ignore")
+    # 仅返回日志尾部，避免日志文件变大后每次轮询都全量传输导致卡顿。
+    with path.open("rb") as file:
+        file.seek(0, 2)
+        size = file.tell()
+        if size <= tail_bytes:
+            file.seek(0)
+        else:
+            file.seek(size - tail_bytes)
+        data = file.read()
+    return data.decode("utf-8", errors="ignore")
 
 
 def get_report_path(run: Run) -> str | None:

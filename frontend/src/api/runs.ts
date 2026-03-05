@@ -46,8 +46,10 @@ export const runApi = {
     const { data } = await http.get(`/api/runs/${runId}`);
     return data;
   },
-  async logs(runId: number): Promise<{ content: string }> {
-    const { data } = await http.get(`/api/runs/${runId}/logs`);
+  async logs(runId: number, tailBytes = 50_000): Promise<{ content: string }> {
+    const { data } = await http.get(`/api/runs/${runId}/logs`, {
+      params: { tail_bytes: tailBytes },
+    });
     return data;
   },
   async progress(runId: number): Promise<RunProgress> {

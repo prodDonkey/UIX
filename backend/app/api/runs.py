@@ -63,11 +63,15 @@ def get_run_progress(run_id: int, db: Session = Depends(get_db)) -> RunProgressR
 
 
 @router.get("/{run_id}/logs", response_model=RunLogsResponse)
-def get_run_logs(run_id: int, db: Session = Depends(get_db)) -> RunLogsResponse:
+def get_run_logs(
+    run_id: int,
+    tail_bytes: int = Query(default=50_000, ge=1_000, le=500_000),
+    db: Session = Depends(get_db),
+) -> RunLogsResponse:
     run = db.get(Run, run_id)
     if not run:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
-    return RunLogsResponse(content=read_run_logs(run))
+    return RunLogsResponse(content=read_run_logs(run, tail_bytes=tail_bytes))
 
 
 @router.post("/{run_id}/cancel", response_model=RunRead)

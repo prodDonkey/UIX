@@ -147,6 +147,8 @@ const activeLogKeyword = ref('');
 
 let timer: number | null = null;
 let stopped = false;
+let lastDetailFetchAt = 0;
+let lastLogsFetchAt = 0;
 
 const statusTagType = computed(() => {
   if (!run.value) return 'info';
@@ -375,23 +377,31 @@ function setupProgressStream() {
  * - silent=false: 手动刷新场景，失败会提示用户。
  */
 async function refresh(silent = false) {
+  const now = Date.now();
+  const isRunning = run.value?.status === 'queued' || run.value?.status === 'running';
+  const shouldFetchDetail = !isRunning || !silent || now - lastDetailFetchAt >= 8000;
+  const shouldFetchLogs = !silent || now - lastLogsFetchAt >= 5000;
+
   const [detailResult, progressResult, logsResult, reportResult] = await Promise.allSettled([
-    runApi.detail(runId.value),
+    shouldFetchDetail ? runApi.detail(runId.value) : Promise.resolve(run.value as Run),
     runApi.progress(runId.value),
-    runApi.logs(runId.value),
+    shouldFetchLogs ? runApi.logs(runId.value, 50_000) : Promise.resolve({ content: logs.value }),
     runApi.report(runId.value),
   ]);
 
   if (detailResult.status === 'fulfilled') {
     const detail = detailResult.value;
     run.value = detail;
-    // 历史记录不阻断主数据渲染，失败仅告警。
-    try {
-      if (detail.script_id) {
-        history.value = await runApi.list(detail.script_id);
+    if (shouldFetchDetail) {
+      lastDetailFetchAt = now;
+      // 历史记录不阻断主数据渲染，失败仅告警。
+      try {
+        if (detail.script_id) {
+          history.value = await runApi.list(detail.script_id);
+        }
+      } catch (error) {
+        console.warn('[RunDetail] 获取历史执行失败', error);
       }
-    } catch (error) {
-      console.warn('[RunDetail] 获取历史执行失败', error);
     }
   } else {
     if (!silent) {
@@ -407,6 +417,9 @@ async function refresh(silent = false) {
 
   if (logsResult.status === 'fulfilled') {
     logs.value = logsResult.value.content;
+    if (shouldFetchLogs) {
+      lastLogsFetchAt = now;
+    }
   } else {
     console.warn('[RunDetail] 获取日志失败', logsResult.reason);
   }
