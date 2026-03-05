@@ -27,7 +27,6 @@
 【android 部分】
 android 是必填对象，常用字段：
 - deviceId: string # 可选，默认首个连接设备
-- launch: string # 可选，启动 URL 或应用
 - output: string # 可选，输出 aiQuery/aiAssert 结果 JSON 文件
 - scrcpyConfig:
   - enabled: true # Android 默认开启 scrcpy 截图模式以提升稳定性
@@ -105,6 +104,7 @@ flow 可用指令：
 3. 步骤要短、单一意图、可执行。
 4. 不要虚构字段，不要输出无关平台配置。
 5. 若需求涉及“上门超人”App，必须使用其包名启动应用：`launch: com.zhaoliangji.supermancall`（不要使用其他包名或应用名占位符）。
+6. 启动动作去重：不要同时生成 `android.launch` 和 `flow` 中的 `launch`；默认优先保留 `flow` 中的 `launch`。
 
 【输出前自检】
 - 是否只输出 YAML 本体？
