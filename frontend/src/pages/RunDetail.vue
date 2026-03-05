@@ -7,7 +7,7 @@
             <strong>执行详情 #{{ runId }}</strong>
             <div class="actions">
               <el-tag :type="statusTagType">{{ run?.status ?? 'unknown' }}</el-tag>
-              <el-button @click="refresh">刷新</el-button>
+              <el-button @click="refresh(false)">刷新</el-button>
               <el-button type="primary" plain :disabled="!canRerun" @click="rerun">重新执行</el-button>
               <el-button type="danger" plain :disabled="!canCancel" @click="cancelRun">取消执行</el-button>
             </div>
@@ -352,7 +352,7 @@ function setupProgressStream() {
       applyRunnerProgressEvent(payload);
       if (payload?.status === 'success' || payload?.status === 'failed' || payload?.status === 'cancelled') {
         // 终态后主动刷新一次详情，确保报告/耗时等字段一致。
-        refresh().catch(() => undefined);
+        refresh(true).catch(() => undefined);
       }
     } catch (error) {
       console.warn('[RunDetail] 解析runner进度事件失败', error);
@@ -369,7 +369,12 @@ function setupProgressStream() {
   };
 }
 
-async function refresh() {
+/**
+ * 刷新运行详情数据。
+ * - silent=true: 轮询场景，失败仅记录日志不弹窗，避免提示刷屏。
+ * - silent=false: 手动刷新场景，失败会提示用户。
+ */
+async function refresh(silent = false) {
   const [detailResult, progressResult, logsResult, reportResult] = await Promise.allSettled([
     runApi.detail(runId.value),
     runApi.progress(runId.value),
@@ -389,7 +394,9 @@ async function refresh() {
       console.warn('[RunDetail] 获取历史执行失败', error);
     }
   } else {
-    ElMessage.error('获取执行详情失败，请稍后重试');
+    if (!silent) {
+      ElMessage.error('获取执行详情失败，请稍后重试');
+    }
   }
 
   if (progressResult.status === 'fulfilled') {
@@ -418,7 +425,7 @@ function getPollIntervalMs(status: Run['status'] | undefined): number {
 
 async function pollingLoop() {
   while (!stopped) {
-    await refresh();
+    await refresh(true);
     const interval = getPollIntervalMs(run.value?.status);
     await new Promise<void>((resolve) => {
       timer = window.setTimeout(() => {
@@ -432,7 +439,7 @@ async function pollingLoop() {
 async function cancelRun() {
   await runApi.cancel(runId.value);
   ElMessage.success('已发送取消请求');
-  await refresh();
+  await refresh(false);
 }
 
 async function rerun() {
@@ -440,7 +447,7 @@ async function rerun() {
   const created = await runApi.create(run.value.script_id);
   ElMessage.success(`已创建重试任务 #${created.id}`);
   await router.push({ name: 'run-detail', params: { id: created.id } });
-  await refresh();
+  await refresh(false);
 }
 
 function goRun(id: number) {
@@ -472,6 +479,7 @@ function openAndroidPlayground() {
 onMounted(async () => {
   stopped = false;
   setupProgressStream();
+  await refresh(true);
   await pollingLoop();
 });
 
