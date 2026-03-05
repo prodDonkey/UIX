@@ -22,8 +22,8 @@
       </el-form-item>
       <el-form-item label="来源">
         <el-select v-model="sourceType" style="width: 220px">
-          <el-option label="manual" value="manual" />
-          <el-option label="ai" value="ai" />
+          <el-option label="手动" value="manual" />
+          <el-option label="AI生成" value="ai" />
         </el-select>
       </el-form-item>
     </el-form>
