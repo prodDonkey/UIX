@@ -370,18 +370,44 @@ function setupProgressStream() {
 }
 
 async function refresh() {
-  const [detail, progress, logData, report] = await Promise.all([
+  const [detailResult, progressResult, logsResult, reportResult] = await Promise.allSettled([
     runApi.detail(runId.value),
     runApi.progress(runId.value),
     runApi.logs(runId.value),
     runApi.report(runId.value),
   ]);
-  run.value = detail;
-  runProgress.value = progress;
-  logs.value = logData.content;
-  reportInfo.value = report;
-  if (detail.script_id) {
-    history.value = await runApi.list(detail.script_id);
+
+  if (detailResult.status === 'fulfilled') {
+    const detail = detailResult.value;
+    run.value = detail;
+    // 历史记录不阻断主数据渲染，失败仅告警。
+    try {
+      if (detail.script_id) {
+        history.value = await runApi.list(detail.script_id);
+      }
+    } catch (error) {
+      console.warn('[RunDetail] 获取历史执行失败', error);
+    }
+  } else {
+    ElMessage.error('获取执行详情失败，请稍后重试');
+  }
+
+  if (progressResult.status === 'fulfilled') {
+    runProgress.value = progressResult.value;
+  } else {
+    console.warn('[RunDetail] 获取进度失败', progressResult.reason);
+  }
+
+  if (logsResult.status === 'fulfilled') {
+    logs.value = logsResult.value.content;
+  } else {
+    console.warn('[RunDetail] 获取日志失败', logsResult.reason);
+  }
+
+  if (reportResult.status === 'fulfilled') {
+    reportInfo.value = reportResult.value;
+  } else {
+    console.warn('[RunDetail] 获取报告失败', reportResult.reason);
   }
 }
 
