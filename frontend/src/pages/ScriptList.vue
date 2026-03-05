@@ -8,7 +8,13 @@
     </template>
 
     <el-table :data="store.scripts" v-loading="store.loading" row-key="id">
-      <el-table-column prop="name" label="名称" min-width="180" />
+      <el-table-column label="名称" min-width="180">
+        <template #default="{ row }">
+          <el-button link type="primary" class="name-link" @click="goEdit(row.id)">
+            {{ row.name }}
+          </el-button>
+        </template>
+      </el-table-column>
       <el-table-column prop="source_type" label="来源" width="120" />
       <el-table-column prop="updated_at" label="更新时间" min-width="180" :formatter="formatTime" />
       <el-table-column label="操作" width="280" fixed="right">
@@ -77,5 +83,10 @@ async function deleteScript(id: number) {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.name-link {
+  padding: 0;
+  height: auto;
 }
 </style>
