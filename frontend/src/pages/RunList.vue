@@ -30,7 +30,7 @@
       </el-table-column>
       <el-table-column label="状态" width="120">
         <template #default="{ row }">
-          <el-tag :type="statusTagType(row.status)">{{ row.status }}</el-tag>
+          <el-tag :type="statusTagType(row.status)">{{ formatRunStatus(row.status) }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column prop="started_at" label="开始时间" min-width="180" :formatter="formatTime" />
@@ -96,6 +96,15 @@ function statusTagType(status: Run['status']) {
   if (status === 'failed' || status === 'cancelled') return 'danger';
   if (status === 'running') return 'warning';
   return 'info';
+}
+
+function formatRunStatus(status: Run['status']) {
+  if (status === 'queued') return '排队中';
+  if (status === 'running') return '执行中';
+  if (status === 'success') return '成功';
+  if (status === 'failed') return '失败';
+  if (status === 'cancelled') return '已取消';
+  return status;
 }
 
 function formatTime(_: unknown, __: unknown, value: string | null) {

@@ -15,7 +15,11 @@
           </el-button>
         </template>
       </el-table-column>
-      <el-table-column prop="source_type" label="来源" width="120" />
+      <el-table-column label="来源" width="120">
+        <template #default="{ row }">
+          {{ formatSourceType(row.source_type) }}
+        </template>
+      </el-table-column>
       <el-table-column prop="updated_at" label="更新时间" min-width="180" :formatter="formatTime" />
       <el-table-column label="操作" width="280" fixed="right">
         <template #default="{ row }">
@@ -62,6 +66,12 @@ function goEdit(id: number) {
 
 function formatTime(_: unknown, __: unknown, value: string) {
   return formatServerDateTime(value);
+}
+
+function formatSourceType(sourceType: string) {
+  if (sourceType === 'manual') return '手动';
+  if (sourceType === 'ai') return 'AI生成';
+  return sourceType || '-';
 }
 
 async function copyScript(id: number) {

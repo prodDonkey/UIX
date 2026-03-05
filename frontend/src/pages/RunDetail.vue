@@ -6,7 +6,7 @@
           <div class="header">
             <strong>执行详情 #{{ runId }}</strong>
             <div class="actions">
-              <el-tag :type="statusTagType">{{ run?.status ?? 'unknown' }}</el-tag>
+              <el-tag :type="statusTagType">{{ formatRunStatus(run?.status) }}</el-tag>
               <el-button :disabled="isCancelling || isRerunning" @click="refresh(false)">刷新</el-button>
               <el-button type="primary" plain :loading="isRerunning" :disabled="!canRerun" @click="rerun">
                 重新执行
@@ -20,7 +20,7 @@
 
         <el-descriptions :column="2" border v-if="run">
           <el-descriptions-item label="脚本ID">{{ run.script_id }}</el-descriptions-item>
-          <el-descriptions-item label="状态">{{ run.status }}</el-descriptions-item>
+          <el-descriptions-item label="状态">{{ formatRunStatus(run.status) }}</el-descriptions-item>
           <el-descriptions-item label="开始时间">{{ formatDateTime(run.started_at) }}</el-descriptions-item>
           <el-descriptions-item label="结束时间">{{ formatDateTime(run.ended_at) }}</el-descriptions-item>
           <el-descriptions-item label="耗时(ms)">{{ run.duration_ms ?? '-' }}</el-descriptions-item>
@@ -71,7 +71,11 @@
               </el-button>
             </template>
           </el-table-column>
-          <el-table-column prop="status" label="状态" width="90" />
+          <el-table-column label="状态" width="90">
+            <template #default="{ row }">
+              {{ formatRunStatus(row.status) }}
+            </template>
+          </el-table-column>
           <el-table-column prop="started_at" label="开始时间" min-width="150" :formatter="formatHistoryTime" />
           <el-table-column label="备注" min-width="140" show-overflow-tooltip>
             <template #default="{ row }">
@@ -182,6 +186,16 @@ const statusTagType = computed(() => {
   if (run.value.status === 'running') return 'warning';
   return 'info';
 });
+
+function formatRunStatus(status?: Run['status'] | null) {
+  if (!status) return '未知';
+  if (status === 'queued') return '排队中';
+  if (status === 'running') return '执行中';
+  if (status === 'success') return '成功';
+  if (status === 'failed') return '失败';
+  if (status === 'cancelled') return '已取消';
+  return status;
+}
 
 const canCancel = computed(
   () => !isCancelling.value && !isRerunning.value && (run.value?.status === 'running' || run.value?.status === 'queued'),
