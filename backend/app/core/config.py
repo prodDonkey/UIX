@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     runner_base_url: str = "http://127.0.0.1:8100"
     runner_timeout_sec: int = 10
     runner_progress_poll_interval_ms: int = 1000
+    db_pool_size: int = 20
+    db_max_overflow: int = 40
+    db_pool_timeout_sec: int = 30
     report_root_dir: str = "./midscene_run/report"
     llm_base_url: str = ""
     llm_api_key: str = ""

@@ -60,76 +60,81 @@ def cancel_run(db: Session, run_id: int) -> Run | None:
 
 
 def _execute_run(run_id: int) -> None:
-    db = SessionLocal()
+    log_path: str | None = None
+    started_at: datetime | None = None
     try:
-        run = db.get(Run, run_id)
-        if not run:
-            return
-        if run.status == "cancelled":
-            return
+        # 使用短会话初始化 run，避免后台线程长时间占用连接池。
+        with SessionLocal() as db:
+            run = db.get(Run, run_id)
+            if not run:
+                return
+            if run.status == "cancelled":
+                return
 
-        script = db.get(Script, run.script_id)
-        if not script:
-            run.status = "failed"
-            run.error_message = "Script not found"
+            script = db.get(Script, run.script_id)
+            if not script:
+                run.status = "failed"
+                run.error_message = "Script not found"
+                db.commit()
+                return
+
+            scripts_dir = Path(settings.run_scripts_dir)
+            logs_dir = Path(settings.run_logs_dir)
+            scripts_dir.mkdir(parents=True, exist_ok=True)
+            logs_dir.mkdir(parents=True, exist_ok=True)
+
+            yaml_path = scripts_dir / f"run-{run.id}-script-{run.script_id}.yaml"
+            current_log_path = logs_dir / f"run-{run.id}.log"
+            yaml_path.write_text(script.content, encoding="utf-8")
+
+            run.status = "running"
+            run.started_at = datetime.utcnow()
+            run.log_path = str(current_log_path.resolve())
+            run.current_task = None
+            run.current_action = None
+            run.progress_json = None
+            run.error_message = None
             db.commit()
-            return
 
-        scripts_dir = Path(settings.run_scripts_dir)
-        logs_dir = Path(settings.run_logs_dir)
-        scripts_dir.mkdir(parents=True, exist_ok=True)
-        logs_dir.mkdir(parents=True, exist_ok=True)
+            script_content = script.content
+            log_path = run.log_path
+            started_at = run.started_at
 
-        yaml_path = scripts_dir / f"run-{run.id}-script-{run.script_id}.yaml"
-        log_path = logs_dir / f"run-{run.id}.log"
-        yaml_path.write_text(script.content, encoding="utf-8")
-
-        run.status = "running"
-        run.started_at = datetime.utcnow()
-        run.log_path = str(log_path.resolve())
-        run.current_task = None
-        run.current_action = None
-        run.progress_json = None
-        run.error_message = None
-        db.commit()
-        db.refresh(run)
-
-        _append_log_line(run.log_path, f"[{_now_str()}] runner start run={run.id}")
-
-        if run.status == "cancelled":
-            _runner_cancel(run.id)
-            return
-
-        _runner_start(run.id, script.content)
+        _append_log_line(log_path, f"[{_now_str()}] runner start run={run_id}")
+        _runner_start(run_id, script_content)
 
         terminal_status: str | None = None
         previous_progress_signature: tuple[str | None, str | None, int, int] | None = None
         poll_interval_sec = max(settings.runner_progress_poll_interval_ms, 200) / 1000
 
         while True:
-            db.refresh(run)
-            if run.status == "cancelled":
-                _runner_cancel(run.id)
-                _append_log_line(run.log_path, f"[{_now_str()}] cancelled by user")
-                return
-
-            progress = _runner_progress(run.id)
+            # 先从 runner 拉进度，再落库，避免数据库连接在网络请求期间被占用。
+            progress = _runner_progress(run_id)
             progress_status = progress.get("status")
 
-            run.current_task = progress.get("currentTask")
-            run.current_action = progress.get("currentAction")
-            run.progress_json = json.dumps(progress, ensure_ascii=False)
-            db.commit()
+            with SessionLocal() as db:
+                run = db.get(Run, run_id)
+                if not run:
+                    return
+                if run.status == "cancelled":
+                    _runner_cancel(run_id)
+                    _append_log_line(log_path, f"[{_now_str()}] cancelled by user")
+                    return
 
-            completed = _safe_int(progress.get("completed"))
-            total = _safe_int(progress.get("total"))
-            signature = (run.current_task, run.current_action, completed, total)
+                run.current_task = progress.get("currentTask")
+                run.current_action = progress.get("currentAction")
+                run.progress_json = json.dumps(progress, ensure_ascii=False)
+                db.commit()
+
+                completed = _safe_int(progress.get("completed"))
+                total = _safe_int(progress.get("total"))
+                signature = (run.current_task, run.current_action, completed, total)
             if signature != previous_progress_signature:
                 _append_log_line(
-                    run.log_path,
+                    log_path,
                     (
                         f"[{_now_str()}] progress status={progress_status} "
-                        f"task={run.current_task or '-'} action={run.current_action or '-'} "
+                        f"task={signature[0] or '-'} action={signature[1] or '-'} "
                         f"completed={completed}/{total}"
                     ),
                 )
@@ -141,43 +146,49 @@ def _execute_run(run_id: int) -> None:
 
             time.sleep(poll_interval_sec)
 
-        result = _runner_result(run.id)
-        db.refresh(run)
-        if run.status == "cancelled":
-            return
+        result = _runner_result(run_id)
+        with SessionLocal() as db:
+            run = db.get(Run, run_id)
+            if not run:
+                return
+            if run.status == "cancelled":
+                return
 
-        run.ended_at = datetime.utcnow()
-        if run.started_at:
-            run.duration_ms = int((run.ended_at - run.started_at).total_seconds() * 1000)
+            run.ended_at = datetime.utcnow()
+            start_for_duration = run.started_at or started_at
+            if start_for_duration:
+                run.duration_ms = int((run.ended_at - start_for_duration).total_seconds() * 1000)
 
-        run.report_path = result.get("reportPath")
-        run.summary_path = result.get("summaryPath")
-        run.error_message = result.get("errorMessage")
+            run.report_path = result.get("reportPath")
+            run.summary_path = result.get("summaryPath")
+            run.error_message = result.get("errorMessage")
 
-        result_status = result.get("status") or terminal_status
-        if result_status not in ("success", "failed", "cancelled"):
-            result_status = "failed"
-            run.error_message = run.error_message or f"Unexpected runner status: {result.get('status')}"
+            result_status = result.get("status") or terminal_status
+            if result_status not in ("success", "failed", "cancelled"):
+                result_status = "failed"
+                run.error_message = run.error_message or f"Unexpected runner status: {result.get('status')}"
 
-        run.status = result_status
-        db.commit()
+            run.status = result_status
+            db.commit()
+            final_status = run.status
+            final_report_path = run.report_path
 
         _append_log_line(
-            run.log_path,
-            f"[{_now_str()}] runner finished status={run.status} report={run.report_path or '-'}",
+            log_path,
+            f"[{_now_str()}] runner finished status={final_status} report={final_report_path or '-'}",
         )
     except Exception as exc:  # noqa: BLE001
-        run = db.get(Run, run_id)
-        if run:
-            run.status = "failed"
-            run.ended_at = datetime.utcnow()
-            if run.started_at:
-                run.duration_ms = int((run.ended_at - run.started_at).total_seconds() * 1000)
-            run.error_message = str(exc)
-            db.commit()
-            _append_log_line(run.log_path, f"[{_now_str()}] failed error={exc}")
-    finally:
-        db.close()
+        with SessionLocal() as db:
+            run = db.get(Run, run_id)
+            if run:
+                run.status = "failed"
+                run.ended_at = datetime.utcnow()
+                start_for_duration = run.started_at or started_at
+                if start_for_duration:
+                    run.duration_ms = int((run.ended_at - start_for_duration).total_seconds() * 1000)
+                run.error_message = str(exc)
+                db.commit()
+                _append_log_line(run.log_path or log_path, f"[{_now_str()}] failed error={exc}")
 
 
 def read_run_logs(run: Run) -> str:
