@@ -1,7 +1,7 @@
 <template>
   <el-container class="layout">
     <el-header class="header">
-      <div class="title">UI自动化脚本</div>
+      <div class="title" role="button" tabindex="0" @click="goScripts" @keydown.enter="goScripts">UI自动化脚本</div>
       <div class="nav-actions">
         <el-button :type="isScriptsPage ? 'primary' : 'default'" plain @click="goScripts">脚本列表</el-button>
         <el-button :type="isRunsPage ? 'primary' : 'default'" plain @click="goRuns">运行列表</el-button>
@@ -44,6 +44,8 @@ function goRuns() {
 .title {
   font-weight: 700;
   letter-spacing: 0.2px;
+  cursor: pointer;
+  user-select: none;
 }
 .nav-actions {
   display: flex;
