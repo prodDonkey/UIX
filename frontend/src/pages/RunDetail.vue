@@ -57,8 +57,20 @@
         <template #header>
           <strong>同脚本历史执行</strong>
         </template>
-        <el-table :data="history" size="small" height="420" row-key="id">
+        <el-table :data="sortedHistory" size="small" height="420" row-key="id">
           <el-table-column prop="id" label="Run ID" width="85" />
+          <el-table-column label="🌟" width="58" align="center">
+            <template #default="{ row }">
+              <el-button
+                size="small"
+                link
+                :type="row.is_starred ? 'warning' : 'info'"
+                @click="toggleStar(row)"
+              >
+                {{ row.is_starred ? '★' : '☆' }}
+              </el-button>
+            </template>
+          </el-table-column>
           <el-table-column prop="status" label="状态" width="90" />
           <el-table-column prop="started_at" label="开始时间" min-width="150" :formatter="formatHistoryTime" />
           <el-table-column label="备注" min-width="140" show-overflow-tooltip>
@@ -180,6 +192,15 @@ const androidPlaygroundEmbedUrl = (
 ).replace(/\/+$/, '');
 const runnerBaseUrl = (import.meta.env.VITE_RUNNER_BASE_URL || 'http://127.0.0.1:8787').replace(/\/+$/, '');
 let progressStream: EventSource | null = null;
+
+const sortedHistory = computed(() =>
+  [...history.value].sort((a, b) => {
+    const aStar = a.is_starred ? 1 : 0;
+    const bStar = b.is_starred ? 1 : 0;
+    if (aStar !== bStar) return bStar - aStar;
+    return b.id - a.id;
+  }),
+);
 
 const parsedProgressPayload = computed(() => {
   const raw = runProgress.value?.progress_json;
@@ -519,6 +540,20 @@ async function editRemark(targetRun: Run) {
     if (error === 'cancel' || error === 'close') return;
     console.error('[RunDetail] 更新备注失败', error);
     ElMessage.error('保存备注失败，请稍后重试');
+  }
+}
+
+async function toggleStar(targetRun: Run) {
+  const nextStarValue = !targetRun.is_starred;
+  try {
+    const saved = await runApi.updateStar(targetRun.id, nextStarValue);
+    const row = history.value.find((item) => item.id === targetRun.id);
+    if (row) row.is_starred = !!saved.is_starred;
+    if (run.value?.id === targetRun.id) run.value.is_starred = !!saved.is_starred;
+    ElMessage.success(saved.is_starred ? '已星标并置顶' : '已取消星标');
+  } catch (error) {
+    console.error('[RunDetail] 更新星标失败', error);
+    ElMessage.error('更新星标失败，请稍后重试');
   }
 }
 

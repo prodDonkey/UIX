@@ -16,6 +16,7 @@ from app.schemas.run import (
     RunProgressRead,
     RunRead,
     RunRemarkUpdateRequest,
+    RunStarUpdateRequest,
 )
 from app.services.run_service import (
     cancel_run,
@@ -105,6 +106,19 @@ def update_run_remark(run_id: int, payload: RunRemarkUpdateRequest, db: Session 
     db.commit()
     db.refresh(run)
     logger.info("运行备注已更新 runId=%s hasRemark=%s", run_id, bool(run.remark))
+    return run
+
+
+@router.patch("/{run_id}/star", response_model=RunRead)
+def update_run_star(run_id: int, payload: RunStarUpdateRequest, db: Session = Depends(get_db)) -> Run:
+    run = db.get(Run, run_id)
+    if not run:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+
+    run.is_starred = payload.is_starred
+    db.commit()
+    db.refresh(run)
+    logger.info("运行星标已更新 runId=%s isStarred=%s", run_id, run.is_starred)
     return run
 
 

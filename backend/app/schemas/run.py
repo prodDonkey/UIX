@@ -21,6 +21,7 @@ class RunRead(BaseModel):
     current_task: str | None = None
     current_action: str | None = None
     remark: str | None = None
+    is_starred: bool = False
 
     class Config:
         from_attributes = True
@@ -40,6 +41,7 @@ class RunListRead(BaseModel):
     duration_ms: int | None
     error_message: str | None
     remark: str | None = None
+    is_starred: bool = False
 
     class Config:
         from_attributes = True
@@ -60,3 +62,7 @@ class RunProgressRead(BaseModel):
 
 class RunRemarkUpdateRequest(BaseModel):
     remark: str | None = Field(default=None, max_length=500)
+
+
+class RunStarUpdateRequest(BaseModel):
+    is_starred: bool

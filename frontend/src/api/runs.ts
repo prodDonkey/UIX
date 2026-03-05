@@ -15,6 +15,7 @@ export type Run = {
   current_action?: string | null;
   progress_json?: string | null;
   remark?: string | null;
+  is_starred?: boolean;
 };
 
 export type RunReport = {
@@ -67,6 +68,10 @@ export const runApi = {
   },
   async updateRemark(runId: number, remark: string | null): Promise<Run> {
     const { data } = await http.patch(`/api/runs/${runId}/remark`, { remark });
+    return data;
+  },
+  async updateStar(runId: number, isStarred: boolean): Promise<Run> {
+    const { data } = await http.patch(`/api/runs/${runId}/star`, { is_starred: isStarred });
     return data;
   },
 };
