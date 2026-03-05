@@ -8,7 +8,7 @@ import time
 
 import httpx
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from app.core.config import settings
 from app.core.database import SessionLocal
@@ -27,8 +27,24 @@ def create_run(db: Session, script_id: int) -> Run:
     return run
 
 
-def list_runs(db: Session, script_id: int | None = None) -> list[Run]:
-    stmt = select(Run).order_by(Run.id.desc())
+def list_runs(db: Session, script_id: int | None = None, limit: int = 200) -> list[Run]:
+    # 列表接口只查必要字段，避免 progress_json 等大文本导致接口缓慢和前端超时。
+    stmt = (
+        select(Run)
+        .options(
+            load_only(
+                Run.id,
+                Run.script_id,
+                Run.status,
+                Run.started_at,
+                Run.ended_at,
+                Run.duration_ms,
+                Run.error_message,
+            )
+        )
+        .order_by(Run.id.desc())
+        .limit(limit)
+    )
     if script_id is not None:
         stmt = stmt.where(Run.script_id == script_id)
     return list(db.scalars(stmt).all())

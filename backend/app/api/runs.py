@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.run import Run
-from app.schemas.run import RunCreateRequest, RunLogsResponse, RunProgressRead, RunRead
+from app.schemas.run import RunCreateRequest, RunListRead, RunLogsResponse, RunProgressRead, RunRead
 from app.services.run_service import (
     cancel_run,
     create_run,
@@ -20,12 +20,13 @@ from app.services.run_service import (
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 
 
-@router.get("", response_model=list[RunRead])
+@router.get("", response_model=list[RunListRead])
 def get_runs(
     script_id: int | None = Query(default=None, gt=0),
+    limit: int = Query(default=200, ge=1, le=1000),
     db: Session = Depends(get_db),
 ) -> list[Run]:
-    return list_runs(db, script_id=script_id)
+    return list_runs(db, script_id=script_id, limit=limit)
 
 
 @router.post("", response_model=RunRead, status_code=status.HTTP_201_CREATED)

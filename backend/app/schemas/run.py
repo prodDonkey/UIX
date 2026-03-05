@@ -26,6 +26,24 @@ class RunRead(BaseModel):
         from_attributes = True
 
 
+class RunListRead(BaseModel):
+    """
+    运行列表轻量响应：
+    仅返回列表页需要字段，避免把 progress_json 等大字段传输到前端导致慢查询/慢序列化。
+    """
+
+    id: int
+    script_id: int
+    status: str
+    started_at: datetime | None
+    ended_at: datetime | None
+    duration_ms: int | None
+    error_message: str | None
+
+    class Config:
+        from_attributes = True
+
+
 class RunLogsResponse(BaseModel):
     content: str
 
