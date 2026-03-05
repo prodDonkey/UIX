@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -52,12 +53,13 @@ def get_run_progress(run_id: int, db: Session = Depends(get_db)) -> RunProgressR
     run = db.get(Run, run_id)
     if not run:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+    compact_progress_json = _compact_progress_json(run.progress_json)
     return RunProgressRead(
         run_id=run.id,
         status=run.status,
         current_task=run.current_task,
         current_action=run.current_action,
-        progress_json=run.progress_json,
+        progress_json=compact_progress_json,
         updated_at=run.ended_at or run.started_at,
     )
 
@@ -132,3 +134,63 @@ def get_run_report_file(
         media_type="text/html",
         headers={"Content-Disposition": f'inline; filename="{report_file.name}"'},
     )
+
+
+def _compact_progress_json(progress_json: str | None) -> str | None:
+    """
+    兼容历史数据：若 progress_json 含有超大 uiContext/screenshot，返回瘦身后的 JSON 字符串。
+    """
+    if not progress_json:
+        return progress_json
+    try:
+        payload = json.loads(progress_json)
+    except Exception:  # noqa: BLE001
+        return progress_json
+    if not isinstance(payload, dict):
+        return progress_json
+
+    execution_dump = payload.get("executionDump")
+    if not isinstance(execution_dump, dict):
+        return progress_json
+
+    tasks = execution_dump.get("tasks")
+    if not isinstance(tasks, list):
+        return progress_json
+
+    compact_tasks: list[dict] = []
+    changed = False
+    for task in tasks[-20:]:
+        if not isinstance(task, dict):
+            continue
+        if "uiContext" in task or "recorder" in task:
+            changed = True
+        compact_tasks.append(
+            {
+                "taskId": task.get("taskId"),
+                "status": task.get("status"),
+                "type": task.get("type"),
+                "subType": task.get("subType"),
+                "thought": task.get("thought"),
+                "param": task.get("param"),
+                "timing": task.get("timing"),
+                "error": task.get("error"),
+            }
+        )
+    if not changed and len(compact_tasks) == len(tasks):
+        return progress_json
+
+    compact_payload = {
+        "runId": payload.get("runId"),
+        "status": payload.get("status"),
+        "currentTask": payload.get("currentTask"),
+        "currentAction": payload.get("currentAction"),
+        "completed": payload.get("completed"),
+        "total": payload.get("total"),
+        "updatedAt": payload.get("updatedAt"),
+        "executionDump": {
+            "logTime": execution_dump.get("logTime"),
+            "name": execution_dump.get("name"),
+            "tasks": compact_tasks,
+        },
+    }
+    return json.dumps(compact_payload, ensure_ascii=False)

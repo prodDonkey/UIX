@@ -157,9 +157,10 @@ def _execute_run(run_id: int) -> None:
                     _append_log_line(log_path, f"[{_now_str()}] cancelled by user")
                     return
 
-                run.current_task = progress.get("currentTask")
-                run.current_action = progress.get("currentAction")
-                run.progress_json = json.dumps(progress, ensure_ascii=False)
+                compact_progress = _compact_progress_payload(progress)
+                run.current_task = compact_progress.get("currentTask")
+                run.current_action = compact_progress.get("currentAction")
+                run.progress_json = json.dumps(compact_progress, ensure_ascii=False)
                 db.commit()
 
                 completed = _safe_int(progress.get("completed"))
@@ -379,3 +380,49 @@ def _compute_elapsed_ms(started_at: datetime | None) -> int | None:
     if not started_at:
         return None
     return int((datetime.utcnow() - started_at).total_seconds() * 1000)
+
+
+def _compact_progress_payload(progress: dict) -> dict:
+    """
+    压缩 runner 进度结构，去掉 screenshot/base64 等超大字段，避免接口超时。
+    """
+    compact: dict = {
+        "runId": progress.get("runId"),
+        "status": progress.get("status"),
+        "currentTask": progress.get("currentTask"),
+        "currentAction": progress.get("currentAction"),
+        "completed": progress.get("completed"),
+        "total": progress.get("total"),
+        "updatedAt": progress.get("updatedAt"),
+    }
+
+    execution_dump = progress.get("executionDump")
+    if not isinstance(execution_dump, dict):
+        compact["executionDump"] = None
+        return compact
+
+    tasks = execution_dump.get("tasks")
+    compact_tasks: list[dict] = []
+    if isinstance(tasks, list):
+        # 仅保留最近步骤，且移除大字段（uiContext/recorder）。
+        for task in tasks[-20:]:
+            if not isinstance(task, dict):
+                continue
+            compact_tasks.append(
+                {
+                    "taskId": task.get("taskId"),
+                    "status": task.get("status"),
+                    "type": task.get("type"),
+                    "subType": task.get("subType"),
+                    "thought": task.get("thought"),
+                    "param": task.get("param"),
+                    "timing": task.get("timing"),
+                    "error": task.get("error"),
+                }
+            )
+    compact["executionDump"] = {
+        "logTime": execution_dump.get("logTime"),
+        "name": execution_dump.get("name"),
+        "tasks": compact_tasks,
+    }
+    return compact
