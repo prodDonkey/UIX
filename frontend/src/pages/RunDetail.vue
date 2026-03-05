@@ -7,9 +7,13 @@
             <strong>执行详情 #{{ runId }}</strong>
             <div class="actions">
               <el-tag :type="statusTagType">{{ run?.status ?? 'unknown' }}</el-tag>
-              <el-button @click="refresh(false)">刷新</el-button>
-              <el-button type="primary" plain :disabled="!canRerun" @click="rerun">重新执行</el-button>
-              <el-button type="danger" plain :disabled="!canCancel" @click="cancelRun">取消执行</el-button>
+              <el-button :disabled="isCancelling || isRerunning" @click="refresh(false)">刷新</el-button>
+              <el-button type="primary" plain :loading="isRerunning" :disabled="!canRerun" @click="rerun">
+                重新执行
+              </el-button>
+              <el-button type="danger" plain :loading="isCancelling" :disabled="!canCancel" @click="cancelRun">
+                取消执行
+              </el-button>
             </div>
           </div>
         </template>
@@ -144,6 +148,8 @@ const reportInfo = ref<RunReport | null>(null);
 const runProgress = ref<RunProgress | null>(null);
 const logsInputRef = ref<InputInstance>();
 const activeLogKeyword = ref('');
+const isCancelling = ref(false);
+const isRerunning = ref(false);
 
 let timer: number | null = null;
 let stopped = false;
@@ -158,8 +164,10 @@ const statusTagType = computed(() => {
   return 'info';
 });
 
-const canCancel = computed(() => run.value?.status === 'running' || run.value?.status === 'queued');
-const canRerun = computed(() => !!run.value && !canCancel.value);
+const canCancel = computed(
+  () => !isCancelling.value && !isRerunning.value && (run.value?.status === 'running' || run.value?.status === 'queued'),
+);
+const canRerun = computed(() => !isCancelling.value && !isRerunning.value && !!run.value && !canCancel.value);
 const androidPlaygroundEmbedUrl = (
   import.meta.env.VITE_ANDROID_PLAYGROUND_URL || 'http://127.0.0.1:5800'
 ).replace(/\/+$/, '');
@@ -450,17 +458,34 @@ async function pollingLoop() {
 }
 
 async function cancelRun() {
-  await runApi.cancel(runId.value);
-  ElMessage.success('已发送取消请求');
-  await refresh(false);
+  if (isCancelling.value) return;
+  isCancelling.value = true;
+  try {
+    await runApi.cancel(runId.value);
+    ElMessage.success('已发送取消请求');
+    await refresh(false);
+  } catch (error) {
+    console.error('[RunDetail] 取消执行失败', error);
+    ElMessage.error('取消执行失败，请稍后重试');
+  } finally {
+    isCancelling.value = false;
+  }
 }
 
 async function rerun() {
-  if (!run.value) return;
-  const created = await runApi.create(run.value.script_id);
-  ElMessage.success(`已创建重试任务 #${created.id}`);
-  await router.push({ name: 'run-detail', params: { id: created.id } });
-  await refresh(false);
+  if (!run.value || isRerunning.value) return;
+  isRerunning.value = true;
+  try {
+    const created = await runApi.create(run.value.script_id);
+    ElMessage.success(`已创建重试任务 #${created.id}`);
+    await router.push({ name: 'run-detail', params: { id: created.id } });
+    await refresh(false);
+  } catch (error) {
+    console.error('[RunDetail] 重新执行失败', error);
+    ElMessage.error('重新执行失败，请稍后重试');
+  } finally {
+    isRerunning.value = false;
+  }
 }
 
 function goRun(id: number) {
