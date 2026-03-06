@@ -1,0 +1,200 @@
+from __future__ import annotations
+
+from collections.abc import Generator
+from pathlib import Path
+
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.api.runs import router as runs_router
+from app.api.scripts import router as scripts_router
+from app.core.config import settings
+from app.core.database import Base, get_db
+from app.models.run import Run
+
+
+def _build_test_client(tmp_path: Path) -> tuple[TestClient, sessionmaker[Session]]:
+    db_file = tmp_path / "test.db"
+    engine = create_engine(f"sqlite:///{db_file}", connect_args={"check_same_thread": False})
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    app = FastAPI()
+    app.include_router(scripts_router)
+    app.include_router(runs_router)
+
+    def override_get_db() -> Generator[Session, None, None]:
+        db = testing_session_local()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app)
+    return client, testing_session_local
+
+
+def test_scripts_crud_and_validate_still_available(tmp_path: Path) -> None:
+    client, _ = _build_test_client(tmp_path)
+
+    created = client.post(
+        "/api/scripts",
+        json={
+            "name": "登录脚本",
+            "content": "android:\n  deviceId: 'emulator-5554'\ntasks:\n  - name: 登录\n    flow:\n      - aiAction: 打开应用\n",
+            "source_type": "manual",
+        },
+    )
+    assert created.status_code == 201
+    script_id = created.json()["id"]
+
+    listed = client.get("/api/scripts")
+    assert listed.status_code == 200
+    assert any(item["id"] == script_id for item in listed.json())
+
+    updated = client.put(
+        f"/api/scripts/{script_id}",
+        json={"content": "android:\n  deviceId: 'emulator-5554'\ntasks:\n  - name: 登录\n    flow:\n      - aiAction: 输入账号\n"},
+    )
+    assert updated.status_code == 200
+    assert "输入账号" in updated.json()["content"]
+
+    copied = client.post(f"/api/scripts/{script_id}/copy")
+    assert copied.status_code == 201
+    assert copied.json()["name"].endswith("-copy")
+
+    validated = client.post(
+        f"/api/scripts/{script_id}/validate",
+        json={"content": "android:\n  deviceId: 'emulator-5554'\ntasks:\n  - name: 检查\n    flow:\n      - aiAction: 点击设置\n"},
+    )
+    assert validated.status_code == 200
+    assert validated.json()["valid"] is True
+
+    deleted = client.delete(f"/api/scripts/{script_id}")
+    assert deleted.status_code == 204
+
+
+def test_runs_detail_logs_report_and_progress_still_available(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    report_root = tmp_path / "reports"
+    report_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(settings, "report_root_dir", str(report_root))
+
+    client, session_local = _build_test_client(tmp_path)
+
+    # 避免测试中触发真实 Runner 异步执行。
+    monkeypatch.setattr("app.api.runs.start_run_async", lambda run_id: None)
+
+    created_script = client.post(
+        "/api/scripts",
+        json={
+            "name": "运行脚本",
+            "content": "android:\n  deviceId: 'emulator-5554'\ntasks:\n  - name: 执行\n    flow:\n      - aiAction: 打开首页\n",
+            "source_type": "manual",
+        },
+    )
+    assert created_script.status_code == 201
+    script_id = created_script.json()["id"]
+
+    created_run = client.post("/api/runs", json={"script_id": script_id})
+    assert created_run.status_code == 201
+    run_id = created_run.json()["id"]
+
+    log_file = tmp_path / f"run-{run_id}.log"
+    log_file.write_text("[2026-03-04 11:00:00] progress task=打开首页 action=点击按钮\n", encoding="utf-8")
+    report_file = report_root / f"run-{run_id}.html"
+    report_file.write_text("<html><body>ok</body></html>", encoding="utf-8")
+
+    with session_local() as db:
+        run = db.get(Run, run_id)
+        assert run is not None
+        run.status = "running"
+        run.log_path = str(log_file)
+        run.report_path = str(report_file)
+        run.current_task = "登录流程"
+        run.current_action = "点击登录"
+        run.progress_json = '{"status":"running","completed":1,"total":3}'
+        db.commit()
+
+    listed = client.get("/api/runs", params={"script_id": script_id})
+    assert listed.status_code == 200
+    assert len(listed.json()) >= 1
+
+    detail = client.get(f"/api/runs/{run_id}")
+    assert detail.status_code == 200
+    assert detail.json()["current_task"] == "登录流程"
+
+    progress = client.get(f"/api/runs/{run_id}/progress")
+    assert progress.status_code == 200
+    progress_payload = progress.json()
+    assert progress_payload["status"] == "running"
+    assert progress_payload["current_action"] == "点击登录"
+    assert "completed" in progress_payload["progress_json"]
+
+    logs = client.get(f"/api/runs/{run_id}/logs")
+    assert logs.status_code == 200
+    assert "打开首页" in logs.json()["content"]
+
+    report = client.get(f"/api/runs/{run_id}/report")
+    assert report.status_code == 200
+    report_payload = report.json()
+    assert report_payload["preview_url"] is not None
+
+    preview = client.get(f"/api/runs/{run_id}/report/file")
+    assert preview.status_code == 200
+    assert "text/html" in preview.headers.get("content-type", "")
+
+
+def test_runs_report_can_fallback_to_midscene_report_html(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    report_root = tmp_path / "reports"
+    report_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(settings, "report_root_dir", str(report_root))
+
+    client, session_local = _build_test_client(tmp_path)
+    monkeypatch.setattr("app.api.runs.start_run_async", lambda run_id: None)
+    monkeypatch.setattr("app.api.runs.get_report_html", lambda run: "<html><body>midsce-report</body></html>")
+
+    created_script = client.post(
+        "/api/scripts",
+        json={
+            "name": "运行脚本",
+            "content": "android:\n  deviceId: 'emulator-5554'\ntasks:\n  - name: 执行\n    flow:\n      - aiAction: 打开首页\n",
+            "source_type": "manual",
+        },
+    )
+    assert created_script.status_code == 201
+    script_id = created_script.json()["id"]
+
+    created_run = client.post("/api/runs", json={"script_id": script_id})
+    assert created_run.status_code == 201
+    run_id = created_run.json()["id"]
+
+    with session_local() as db:
+        run = db.get(Run, run_id)
+        assert run is not None
+        run.status = "success"
+        run.request_id = "req-report-123"
+        run.report_path = None
+        db.commit()
+
+    report = client.get(f"/api/runs/{run_id}/report")
+    assert report.status_code == 200
+    report_payload = report.json()
+    assert report_payload["report_path"] == "midsce://req-report-123"
+    assert report_payload["preview_url"] is not None
+
+    preview = client.get(f"/api/runs/{run_id}/report/file")
+    assert preview.status_code == 200
+    assert "midsce-report" in preview.text
+
+    download = client.get(f"/api/runs/{run_id}/report/file?download=1")
+    assert download.status_code == 200
+    assert "attachment;" in (download.headers.get("content-disposition") or "")
