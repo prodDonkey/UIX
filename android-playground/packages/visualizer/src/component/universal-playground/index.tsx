@@ -152,6 +152,7 @@ export function UniversalPlayground({
     effectiveStorage,
     contextProvider,
     branding.targetName,
+    componentConfig.disableAutoLoadHistory,
   );
 
   // Use execution hook

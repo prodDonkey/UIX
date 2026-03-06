@@ -375,6 +375,7 @@ export interface UniversalPlaygroundConfig {
   serverMode?: boolean;
   showEnvConfigReminder?: boolean;
   deviceType?: DeviceType;
+  disableAutoLoadHistory?: boolean; // 禁用自动加载历史记录
 }
 
 // branding interface

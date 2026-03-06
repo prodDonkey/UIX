@@ -73,6 +73,7 @@ export default function PlaygroundPanel() {
             serverMode: true,
             showEnvConfigReminder: true,
             deviceType: 'android',
+            disableAutoLoadHistory: true,
           }}
           branding={{
             title: '安卓调试台',

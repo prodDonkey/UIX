@@ -20,6 +20,7 @@ export function usePlaygroundState(
   storage?: StorageProvider | null,
   contextProvider?: ContextProvider,
   targetName?: string,
+  disableAutoLoadHistory?: boolean,
 ) {
   // Core state
   const [loading, setLoading] = useState(false);
@@ -92,6 +93,12 @@ export function usePlaygroundState(
         timestamp: new Date(),
       };
 
+      if (disableAutoLoadHistory) {
+        // If auto load is disabled, only show welcome message
+        setInfoList([welcomeMessage]);
+        return;
+      }
+
       if (storage?.loadMessages) {
         try {
           let storedMessages = await storage.loadMessages();
@@ -127,7 +134,7 @@ export function usePlaygroundState(
       // Fallback: initialize without storage if none provided
       initializeMessages();
     }
-  }, [storage]); // Add storage to dependency array
+  }, [storage, disableAutoLoadHistory]); // Add storage to dependency array
 
   // Save messages to storage when they change
   useEffect(() => {
