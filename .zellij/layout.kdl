@@ -1,0 +1,35 @@
+layout {
+  default_tab_template {
+    pane size=1 borderless=true {
+      plugin location="zellij:tab-bar"
+    }
+    children
+    pane size=2 borderless=true {
+      plugin location="zellij:status-bar"
+    }
+  }
+
+  tab name="android-playground" {
+    pane command="zsh" cwd="/Users/yaohongliang/work/liuyao/AI/UI" {
+      args "-lc" "npx --yes @midscene/android-playground"
+    }
+  }
+
+  tab name="后端" {
+    pane command="zsh" cwd="/Users/yaohongliang/work/liuyao/AI/UI/ui_demo/backend" {
+      args "-lc" "uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    }
+  }
+
+  tab name="前端" {
+    pane command="zsh" cwd="/Users/yaohongliang/work/liuyao/AI/UI/ui_demo/frontend" {
+      args "-lc" "npm run dev -- --host 0.0.0.0 --port 5173"
+    }
+  }
+
+  tab name="任务服务" {
+    pane command="zsh" cwd="/Users/yaohongliang/work/liuyao/AI/UI/ui_demo/runner-service" {
+      args "-lc" "npm run dev"
+    }
+  }
+}
