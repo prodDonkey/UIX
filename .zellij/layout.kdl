@@ -1,35 +1,107 @@
+// ============================================================
+// UIX Development Workspace
+// 作者: yaohongliang
+//
+// 启动方式:
+// zellij attach -c uix-dev --layout ./.zellij/layout.kdl
+//
+// 说明:
+// 启动 UIX 项目完整开发环境
+// ============================================================
+
 layout {
+
+  // ============================================================
+  // 默认 UI 组件
+  // ============================================================
+
   default_tab_template {
+
     pane size=1 borderless=true {
       plugin location="zellij:tab-bar"
     }
+
     children
+
     pane size=2 borderless=true {
       plugin location="zellij:status-bar"
     }
   }
 
+  // ============================================================
+  // Misc
+  // ============================================================
+
+  tab name="misc" {
+    pane command="zsh"
+  }
+  // ============================================================
+  // Android Playground
+  // ============================================================
+
   tab name="android-playground" {
-    pane command="zsh" cwd="/Users/yaohongliang/work/liuyao/AI/UI/uix/android-playground" {
-      args "-lc" " pnpm dev:server"
+
+    pane command="zsh" cwd="/Users/yaohongliang/work/liuyao/AI/UI/uix" {
+      args "-lc" "./scripts/start-android.sh"
     }
+
   }
 
-  tab name="后端" {
-    pane command="zsh" cwd="/Users/yaohongliang/work/liuyao/AI/UI/uix/backend" {
-      args "-lc" "uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+  // ============================================================
+  // Frontend
+  // ============================================================
+
+  tab name="frontend" {
+
+    pane command="zsh" cwd="/Users/yaohongliang/work/liuyao/AI/UI/uix" {
+      args "-lc" "./scripts/start-frontend.sh"
     }
+
   }
 
-  tab name="前端" {
-    pane command="zsh" cwd="/Users/yaohongliang/work/liuyao/AI/UI/uix/frontend" {
-      args "-lc" "npm run dev -- --host 0.0.0.0 --port 5173"
+  // ============================================================
+  // Backend API
+  // ============================================================
+
+  tab name="backend" {
+
+    pane split_direction="vertical" {
+
+      pane command="zsh" cwd="/Users/yaohongliang/work/liuyao/AI/UI/uix" {
+        args "-lc" "./scripts/start-backend.sh"
+      }
+
+      pane command="zsh" cwd="/Users/yaohongliang/work/liuyao/AI/UI/uix/backend" {
+        args "-lc" "tail -f logs/app.log || echo 'waiting for logs...'"
+      }
+
     }
+
   }
 
-  tab name="任务服务" {
-    pane command="zsh" cwd="/Users/yaohongliang/work/liuyao/AI/UI/uix/runner-service" {
-      args "-lc" "npm run dev"
+
+
+
+
+  // ============================================================
+  // Runner Service
+  // ============================================================
+
+  tab name="runner-service" {
+
+    pane split_direction="vertical" {
+
+      pane command="zsh" cwd="/Users/yaohongliang/work/liuyao/AI/UI/uix" {
+        args "-lc" "./scripts/start-runner.sh"
+      }
+
+      pane command="zsh" {
+        args "-lc" "echo 'runner logs'; sleep infinity"
+      }
+
     }
+
   }
+
+
 }

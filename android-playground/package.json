@@ -1,0 +1,23 @@
+{
+  "name": "study-android-playground",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Standalone workspace for studying Midscene Android Playground",
+  "packageManager": "pnpm@9.3.0",
+  "engines": {
+    "node": ">=18.19.0",
+    "pnpm": ">=9.3.0"
+  },
+  "devDependencies": {
+    "@microsoft/api-extractor": "7.52.10"
+  },
+  "scripts": {
+    "build:libs": "corepack pnpm --filter @midscene/shared --filter @midscene/core --filter @midscene/playground --filter @midscene/web --filter @midscene/visualizer --filter @midscene/android --filter @midscene/android-playground -r run build",
+    "dev:libs": "corepack pnpm --filter @midscene/shared --filter @midscene/core --filter @midscene/playground --filter @midscene/web --filter @midscene/visualizer --filter @midscene/android --filter @midscene/android-playground -r --parallel run dev",
+    "dev:ui:auto": "corepack pnpm --filter @midscene/shared --filter @midscene/core --filter @midscene/playground --filter @midscene/web --filter @midscene/visualizer --filter @midscene/android --filter @midscene/android-playground --filter android-playground -r --parallel run dev",
+    "dev:auto": "corepack pnpm run dev:ui:auto",
+    "dev:ui": "corepack pnpm --filter android-playground dev",
+    "dev:server": "corepack pnpm --filter @midscene/android-playground dev:server",
+    "dev:server:no-open": "MIDSCENE_NO_OPEN=1 corepack pnpm --filter @midscene/android-playground dev:server"
+  }
+}

@@ -65,3 +65,4 @@ __pycache__/
 app.db
 backend/runtime/
 backend/midscene_run/
+midscene_run/
