@@ -10,25 +10,25 @@ layout {
   }
 
   tab name="android-playground" {
-    pane command="zsh" cwd="/Users/yaohongliang/work/liuyao/AI/UI" {
-      args "-lc" "npx --yes @midscene/android-playground"
+    pane command="zsh" cwd="/Users/yaohongliang/work/liuyao/AI/UI/uix/android-playground" {
+      args "-lc" " pnpm dev:server"
     }
   }
 
   tab name="后端" {
-    pane command="zsh" cwd="/Users/yaohongliang/work/liuyao/AI/UI/ui_demo/backend" {
+    pane command="zsh" cwd="/Users/yaohongliang/work/liuyao/AI/UI/uix/backend" {
       args "-lc" "uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
     }
   }
 
   tab name="前端" {
-    pane command="zsh" cwd="/Users/yaohongliang/work/liuyao/AI/UI/ui_demo/frontend" {
+    pane command="zsh" cwd="/Users/yaohongliang/work/liuyao/AI/UI/uix/frontend" {
       args "-lc" "npm run dev -- --host 0.0.0.0 --port 5173"
     }
   }
 
   tab name="任务服务" {
-    pane command="zsh" cwd="/Users/yaohongliang/work/liuyao/AI/UI/ui_demo/runner-service" {
+    pane command="zsh" cwd="/Users/yaohongliang/work/liuyao/AI/UI/uix/runner-service" {
       args "-lc" "npm run dev"
     }
   }
