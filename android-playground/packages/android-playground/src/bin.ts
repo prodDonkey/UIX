@@ -70,6 +70,8 @@ async function selectDevice() {
 }
 
 const staticDir = path.join(__dirname, '../../static');
+// 报告保存到上级目录的 midscene_run/report，可通过 /report 路径访问
+const reportDir = path.join(__dirname, '../../midscene_run');
 const shouldAutoOpenPlayground =
   process.env.MIDSCENE_NO_OPEN !== '1' &&
   process.env.MIDSCENE_NO_OPEN !== 'true';
@@ -91,6 +93,7 @@ const main = async () => {
         return new AndroidAgent(device);
       },
       staticDir,
+      reportDir,
     );
 
     const scrcpyServer = new ScrcpyServer();

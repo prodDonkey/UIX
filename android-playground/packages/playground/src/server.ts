@@ -66,6 +66,7 @@ class PlaygroundServer {
   port?: number | null;
   agent: PageAgent;
   staticPath: string;
+  reportDir?: string; // Optional report directory for static file serving
   taskExecutionDumps: Record<string, IExecutionDump | null>; // Store execution dump snapshots
   taskResults: Record<string, AsyncTaskResult>;
   id: string; // Unique identifier for this server instance
@@ -87,11 +88,13 @@ class PlaygroundServer {
   constructor(
     agent: PageAgent | (() => PageAgent) | (() => Promise<PageAgent>),
     staticPath = STATIC_PATH,
+    reportDir?: string, // Optional report directory for static file serving
     id?: string, // Optional override ID
   ) {
     this._app = express();
     this.tmpDir = getTmpDir()!;
     this.staticPath = staticPath;
+    this.reportDir = reportDir;
     this.taskExecutionDumps = {}; // Initialize as empty object
     this.taskResults = {};
     // Use provided ID, or generate random UUID for each startup
@@ -1178,6 +1181,11 @@ class PlaygroundServer {
 
     // Use express.static middleware for secure static file serving
     this._app.use(express.static(this.staticPath));
+
+    // Serve report directory files at /report路径
+    if (this.reportDir) {
+      this._app.use('/report', express.static(this.reportDir));
+    }
 
     // Fallback to index.html for SPA routing
     this._app.get('*', (_req: Request, res: Response) => {
