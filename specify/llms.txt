@@ -1,0 +1,184 @@
+# UIX - Vision-Driven UI Automation Platform
+
+> 基于 Midscene 的视觉驱动 UI 自动化平台，支持 Android 设备自动化、脚本管理和任务执行
+
+## 项目概述
+
+UIX 是一个集成化的 UI 自动化平台，整合了：
+- **后端服务** (FastAPI + Python)：脚本管理、任务调度、LLM 集成
+- **前端界面** (Vue 3 + TypeScript)：脚本编辑、任务监控、报告查看
+- **Android Playground**：基于 Midscene 的 Android 设备零代码自动化工具
+- **Runner Service**：YAML 脚本执行引擎
+
+## 目录结构
+
+```
+uix/
+├── backend/              # Python FastAPI 后端
+│   ├── app/
+│   │   ├── api/          # API 路由 (generate.py, scripts.py, runs.py)
+│   │   ├── core/         # 核心配置 (config.py, database.py)
+│   │   ├── models/       # SQLAlchemy 模型 (run.py, script.py, script_version.py)
+│   │   ├── schemas/      # Pydantic schemas
+│   │   └── services/     # 业务逻辑 (run_service.py, llm_service.py, yaml_validator.py)
+│   ├── prompts/          # LLM 提示词模板
+│   ├── runtime/          # 运行时脚本
+│   ├── scripts/          # 工具脚本
+│   └── tests/            # 单元测试
+│
+├── frontend/             # Vue 3 前端
+│   ├── src/
+│   │   ├── api/          # API 客户端 (client.ts, runs.ts, scripts.ts)
+│   │   ├── stores/       # 状态管理 (script.ts)
+│   │   ├── utils/        # 工具函数 (datetime.ts)
+│   │   └── router/       # 路由配置
+│   └── dist/             # 构建产物
+│
+├── android-playground/   # Android 自动化工具包
+│   ├── packages/
+│   │   ├── core/         # Midscene 核心
+│   │   ├── playground/   # Playground Web 服务
+│   │   └── android-playground/  # Android 设备控制
+│   ├── apps/             # 示例应用
+│   └── md/               # 文档
+│
+├── runner-service/       # Node.js 任务运行服务
+│   ├── src/
+│   │   ├── services/     # (run-manager.ts, yaml-runner.ts)
+│   │   ├── server.ts     # Express 服务器
+│   │   ├── types.ts      # 类型定义
+│   │   └── config.ts     # 配置
+│   └── midscene_run/     # 运行输出 (report/, log/, output/)
+│
+├── specify/              # 项目规范和需求文档
+│   ├── v1.0/            # v1.0 版本规范
+│   ├── v1.1/            # v1.1 版本规范
+│   ├── bug/             # Bug 记录
+│   └── midscene-yaml-tasks-command-dictionary.md  # YAML 命令字典
+│
+└── scripts/              # 项目工具脚本
+```
+
+## 核心模块详解
+
+### backend (Python FastAPI)
+
+**启动方式**：
+```bash
+cd backend && uv sync
+cd backend && uv run uvicorn app.main:app --reload --port 8000
+```
+
+**主要 API 端点**：
+- `/api/scripts` - 脚本 CRUD 操作
+- `/api/runs` - 任务运行管理
+- `/api/generate` - LLM 生成脚本
+
+**数据库**：
+- SQLite (`app.db`)
+- SQLAlchemy ORM
+- 支持脚本版本管理
+
+### frontend (Vue 3 + Vite)
+
+**启动方式**：
+```bash
+cd frontend && npm install
+cd frontend && npm run dev
+cd frontend && npm run build
+```
+
+**主要功能**：
+- 脚本列表与管理
+- 脚本编辑与执行
+- 任务状态监控
+- 执行报告查看
+
+### android-playground
+
+**核心包**：
+- `@midscene/playground` - Web 界面服务 (端口 5800)
+- `@midscene/android-playground` - Android 设备控制
+
+**启动方式**：
+```bash
+cd android-playground/packages/android-playground
+pnpm run dev:server
+```
+
+**功能**：
+- 零代码 Playground
+- 设备连接管理
+- 实时屏幕预览
+- 任务报告生成
+
+### runner-service
+
+**启动方式**：
+```bash
+cd runner-service
+npm run dev  # 或 ts-node src/server.ts
+```
+
+**主要服务**：
+- YAML 脚本执行
+- 任务队列管理
+- 日志输出
+- 报告生成
+
+## 关键配置文件
+
+- `backend/.env` - 后端环境变量 (API 密钥、数据库配置)
+- `backend/pyproject.toml` - Python 依赖管理
+- `frontend/package.json` - Node.js 依赖
+- `android-playground/pnpm-workspace.yaml` - PNPM 工作空间配置
+
+## 数据库模型
+
+### Script (脚本)
+- `id`: 主键
+- `name`: 脚本名称
+- `content`: YAML 内容
+- `created_at` / `updated_at`: 时间戳
+
+### ScriptVersion (脚本版本)
+- `id`: 主键
+- `script_id`: 关联脚本
+- `version`: 版本号
+- `content`: 版本内容
+
+### Run (运行记录)
+- `id`: 主键
+- `script_id`: 关联脚本
+- `status`: 运行状态 (pending/running/completed/failed)
+- `started_at` / `completed_at`: 时间戳
+- `report_path`: 报告文件路径
+
+## LLM 集成
+
+backend 使用 LLM 生成自动化脚本：
+- 提示词模板：`backend/prompts/`
+- 服务层：`backend/app/services/llm_service.py`
+- 支持多种模型提供商
+
+## 报告系统
+
+运行完成后生成 HTML 报告：
+- 路径：`midscene_run/report/`
+- 文件名格式：`android-YYYY-MM-DD_HH-MM-SS-{uuid}.html`
+- 可通过 Playground 服务访问：`http://localhost:5800/report/文件名`
+
+## 技术栈
+
+- **后端**：Python 3.12+, FastAPI, SQLAlchemy, Pydantic, Uvicorn
+- **前端**：Vue 3, TypeScript, Vite, Ant Design Vue
+- **移动端**：Midscene.js, ADB, Scrcpy
+- **Node.js**：Express, TypeScript, ts-node
+
+## 开发规范
+
+参考 `AGENTS.md`：
+- 使用 `uv` 管理 Python 依赖
+- 使用 `pnpm` 管理 Node.js 依赖
+- 提交使用中文 commit message
+- 保持最小改动原则
