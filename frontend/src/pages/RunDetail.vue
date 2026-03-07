@@ -1,111 +1,120 @@
 <template>
-  <el-row :gutter="12">
-    <el-col :span="16">
-      <el-card class="main-card">
-        <template #header>
-          <div class="header">
-            <strong>执行详情 #{{ runId }}</strong>
-            <div class="actions">
-              <el-tag :type="statusTagType">{{ formatRunStatus(run?.status) }}</el-tag>
-              <el-button :disabled="isCancelling || isRerunning" @click="refresh(false)">刷新</el-button>
-              <el-button type="primary" plain :loading="isRerunning" :disabled="!canRerun" @click="rerun">
-                重新执行
-              </el-button>
-              <el-button type="danger" plain :loading="isCancelling" :disabled="!canCancel" @click="cancelRun">
-                取消执行
-              </el-button>
-            </div>
-          </div>
-        </template>
-
-        <el-descriptions :column="2" border v-if="run">
-          <el-descriptions-item label="脚本ID">{{ run.script_id }}</el-descriptions-item>
-          <el-descriptions-item label="requestId">{{ run.request_id || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="状态">{{ formatRunStatus(run.status) }}</el-descriptions-item>
-          <el-descriptions-item label="开始时间">{{ formatDateTime(run.started_at) }}</el-descriptions-item>
-          <el-descriptions-item label="结束时间">{{ formatDateTime(run.ended_at) }}</el-descriptions-item>
-          <el-descriptions-item label="耗时(ms)">{{ run.duration_ms ?? '-' }}</el-descriptions-item>
-          <el-descriptions-item label="报告路径">{{ reportInfo?.report_path || run.report_path || '-' }}</el-descriptions-item>
-          <el-descriptions-item label="备注">{{ run.remark || '-' }}</el-descriptions-item>
-        </el-descriptions>
-
-        <el-alert
-          v-if="run?.error_message"
-          type="error"
-          show-icon
-          :title="`错误：${run.error_message}`"
-          class="error"
-        />
-
-        <div class="playground-panel">
-          <div class="playground-main">
-            <h4 class="title device-title-row">
-              <span>设备实时画面</span>
-              <el-button link type="primary" @click="openAndroidPlayground">打开 Android Playground</el-button>
-            </h4>
-            <div class="device-frame-shell">
-              <iframe :src="androidPlaygroundEmbedUrl" class="device-frame main-device-frame" />
-            </div>
-          </div>
+  <el-card class="main-card">
+    <template #header>
+      <div class="header">
+        <strong>执行详情 #{{ runId }}</strong>
+        <div class="actions">
+          <el-tag :type="statusTagType">{{ formatRunStatus(run?.status) }}</el-tag>
+          <el-button :disabled="isCancelling || isRerunning" @click="refresh(false)">刷新</el-button>
+          <el-button type="primary" plain :loading="isRerunning" :disabled="!canRerun" @click="rerun">
+            重新执行
+          </el-button>
+          <el-button type="danger" plain :loading="isCancelling" :disabled="!canCancel" @click="cancelRun">
+            取消执行
+          </el-button>
         </div>
+      </div>
+    </template>
 
-        <h4 class="title">报告预览</h4>
-        <div class="report-actions">
-          <el-button :disabled="!reportInfo?.preview_url" @click="openPreview">新窗口预览</el-button>
-          <el-button type="primary" :disabled="!reportInfo?.download_url" @click="downloadReport">下载报告</el-button>
+    <el-descriptions :column="2" border v-if="run">
+      <el-descriptions-item label="脚本ID">{{ run.script_id }}</el-descriptions-item>
+      <el-descriptions-item label="requestId">{{ run.request_id || '-' }}</el-descriptions-item>
+      <el-descriptions-item label="状态">{{ formatRunStatus(run.status) }}</el-descriptions-item>
+      <el-descriptions-item label="开始时间">{{ formatDateTime(run.started_at) }}</el-descriptions-item>
+      <el-descriptions-item label="结束时间">{{ formatDateTime(run.ended_at) }}</el-descriptions-item>
+      <el-descriptions-item label="耗时(ms)">{{ run.duration_ms ?? '-' }}</el-descriptions-item>
+      <el-descriptions-item label="报告路径">{{ reportInfo?.report_path || run.report_path || '-' }}</el-descriptions-item>
+      <el-descriptions-item label="备注">{{ run.remark || '-' }}</el-descriptions-item>
+    </el-descriptions>
+
+    <el-alert
+      v-if="run?.error_message"
+      type="error"
+      show-icon
+      :title="`错误：${run.error_message}`"
+      class="error"
+    />
+
+    <div class="playground-panel">
+      <div class="playground-main">
+        <h4 class="title device-title-row">
+          <span>设备实时画面</span>
+          <div class="device-actions">
+            <el-button class="history-trigger" plain @click="historyDrawerVisible = true">
+              同脚本历史执行
+            </el-button>
+            <el-button link type="primary" @click="openAndroidPlayground">打开 Android Playground</el-button>
+          </div>
+        </h4>
+        <div class="device-frame-shell">
+          <iframe :src="androidPlaygroundEmbedUrl" class="device-frame main-device-frame" />
         </div>
-        <iframe v-if="reportInfo?.preview_url" :src="reportInfo.preview_url" class="report-frame" />
-        <el-empty v-else description="暂无报告（任务完成后生成）" />
-      </el-card>
-    </el-col>
+      </div>
+    </div>
 
-    <el-col :span="8">
-      <el-card class="side-card">
-        <template #header>
-          <strong>同脚本历史执行</strong>
-        </template>
-        <el-table :data="sortedHistory" size="small" height="420" row-key="id">
-          <el-table-column prop="id" label="Run ID" width="85" />
-          <el-table-column label="🌟" width="58" align="center">
-            <template #default="{ row }">
-              <el-button
-                size="small"
-                link
-                :type="row.is_starred ? 'warning' : 'info'"
-                @click="toggleStar(row)"
-              >
-                {{ row.is_starred ? '★' : '☆' }}
-              </el-button>
-            </template>
-          </el-table-column>
-          <el-table-column label="状态" width="90">
-            <template #default="{ row }">
-              {{ formatRunStatus(row.status) }}
-            </template>
-          </el-table-column>
-          <el-table-column prop="started_at" label="开始时间" min-width="150" :formatter="formatHistoryTime" />
-          <el-table-column label="备注" min-width="140" show-overflow-tooltip>
-            <template #default="{ row }">
-              {{ row.remark || '-' }}
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="130">
-            <template #default="{ row }">
-              <el-button size="small" link @click="goRun(row.id)">查看</el-button>
-              <el-button size="small" link type="primary" @click="editRemark(row)">备注</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-      </el-card>
+    <h4 class="title">报告预览</h4>
+    <div class="report-actions">
+      <el-button :disabled="!reportInfo?.preview_url" @click="openPreview">新窗口预览</el-button>
+      <el-button type="primary" :disabled="!reportInfo?.download_url" @click="downloadReport">下载报告</el-button>
+    </div>
+    <iframe v-if="reportInfo?.preview_url" :src="reportInfo.preview_url" class="report-frame" />
+    <el-empty v-else description="暂无报告（任务完成后生成）" />
+  </el-card>
 
-    </el-col>
-  </el-row>
+  <el-drawer
+    v-model="historyDrawerVisible"
+    title="同脚本历史执行"
+    size="420px"
+    append-to-body
+    :destroy-on-close="false"
+    class="history-drawer"
+  >
+    <div class="history-drawer-body">
+      <div class="history-drawer-summary">
+        <span>脚本 ID：{{ run?.script_id ?? '-' }}</span>
+        <span>共 {{ sortedHistory.length }} 条</span>
+      </div>
+      <el-table
+        :data="sortedHistory"
+        size="small"
+        row-key="id"
+        height="100%"
+        :row-class-name="historyRowClassName"
+      >
+        <el-table-column prop="id" label="Run ID" width="88" />
+        <el-table-column label="⭐" width="56" align="center">
+          <template #default="{ row }">
+            <el-button size="small" link :type="row.is_starred ? 'warning' : 'info'" @click="toggleStar(row)">
+              {{ row.is_starred ? '★' : '☆' }}
+            </el-button>
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="88">
+          <template #default="{ row }">
+            {{ formatRunStatus(row.status) }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="started_at" label="开始时间" min-width="156" :formatter="formatHistoryTime" />
+        <el-table-column label="备注" min-width="120" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ row.remark || '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="118" fixed="right">
+          <template #default="{ row }">
+            <el-button size="small" link @click="goRun(row.id)">查看</el-button>
+            <el-button size="small" link type="primary" @click="editRemark(row)">备注</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </div>
+  </el-drawer>
 </template>
 
 <script setup lang="ts">
 import axios from 'axios';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import { runApi, type Run, type RunReport } from '../api/runs';
@@ -120,6 +129,7 @@ const history = ref<Run[]>([]);
 const reportInfo = ref<RunReport | null>(null);
 const isCancelling = ref(false);
 const isRerunning = ref(false);
+const historyDrawerVisible = ref(false);
 
 let timer: number | null = null;
 let stopped = false;
@@ -317,7 +327,12 @@ async function toggleStar(targetRun: Run) {
 }
 
 function goRun(id: number) {
+  historyDrawerVisible.value = false;
   router.push({ name: 'run-detail', params: { id } });
+}
+
+function historyRowClassName({ row }: { row: Run }) {
+  return row.id === run.value?.id ? 'history-row-current' : '';
 }
 
 function formatDateTime(value: string | null) {
@@ -348,6 +363,16 @@ onMounted(async () => {
   await pollingLoop();
 });
 
+watch(
+  () => runId.value,
+  async () => {
+    lastDetailFetchAt = 0;
+    historyDrawerVisible.value = false;
+    reportInfo.value = null;
+    await refresh(false);
+  },
+);
+
 onBeforeUnmount(() => {
   stopped = true;
   if (timer) window.clearTimeout(timer);
@@ -364,8 +389,7 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 8px;
 }
-.main-card,
-.side-card {
+.main-card {
   min-height: 600px;
 }
 .title {
@@ -375,6 +399,17 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+}
+.device-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.history-trigger {
+  --el-button-hover-text-color: var(--el-color-primary);
+  --el-button-hover-border-color: var(--el-color-primary-light-5);
+  --el-button-hover-bg-color: var(--el-color-primary-light-9);
 }
 .error {
   margin-top: 10px;
@@ -411,6 +446,24 @@ onBeforeUnmount(() => {
 .main-device-frame {
   min-height: 0;
 }
+.history-drawer :deep(.el-drawer__body) {
+  padding-top: 0;
+}
+.history-drawer-body {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.history-drawer-summary {
+  display: flex;
+  justify-content: space-between;
+  color: #6b7280;
+  font-size: 12px;
+}
+.history-drawer-body :deep(.el-table .history-row-current) {
+  --el-table-tr-bg-color: #eff6ff;
+}
 @media (max-width: 768px) {
   .header {
     flex-direction: column;
@@ -419,6 +472,14 @@ onBeforeUnmount(() => {
   }
   .actions {
     flex-wrap: wrap;
+  }
+  .device-title-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .device-actions {
+    width: 100%;
+    justify-content: space-between;
   }
   .device-frame-shell {
     height: 460px;
