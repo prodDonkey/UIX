@@ -3,7 +3,7 @@
 本文件用于定义编码代理在本仓库中的工作方式。
 
 ## 适用范围
-- 仓库根目录：`/Users/yaohongliang/work/liuyao/AI/UI/ui_demo`
+- 仓库根目录：`/Users/yaohongliang/work/liuyao/AI/UI/uix`
 - 主要模块：
   - `backend`：FastAPI + SQLAlchemy（Python 3.11+，使用 `uv` 管理）
   - `frontend`：Vue 3 + Vite + TypeScript
@@ -18,6 +18,8 @@
 - 允许修改：
   - `backend/**`
   - `frontend/**`
+  - `runner-service/**`
+  - `android-playground/**`
   - 任务需要的小范围配置文件
   - 与任务相关的 `specify/**` 文档
 - 需要谨慎：
@@ -57,6 +59,7 @@
 - 命名与现有代码保持一致。
 - 仅在逻辑不直观时添加简洁注释。
 - 避免与任务无关的大规模重构。
+- 关键节点加入日志和中文备注，方便调试和理解。
 
 ## API 与数据安全
 - 除非任务明确要求，保持 API 契约向后兼容。
