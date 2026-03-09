@@ -163,26 +163,3 @@ test("markFailed keeps terminal timestamps and error message", () => {
   assert.ok(failed.startedAt);
   assert.ok(failed.endedAt);
 });
-
-test("subscribe receives progress and done events", () => {
-  const manager = new RunManager();
-  manager.createRun({
-    runId: 110,
-    yamlContent: "android: {}"
-  });
-
-  const events: string[] = [];
-  const unsubscribe = manager.subscribe(110, (event) => {
-    events.push(event.type);
-  });
-
-  manager.startRun(110);
-  manager.updateProgress(110, {
-    currentTask: "打开APP",
-    currentAction: "Launch"
-  });
-  manager.markSuccess(110);
-  unsubscribe();
-
-  assert.deepEqual(events, ["snapshot", "progress", "done"]);
-});

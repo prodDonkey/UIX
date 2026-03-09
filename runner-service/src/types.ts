@@ -43,10 +43,3 @@ export interface RunSnapshot {
   endedAt: string | null;
   updatedAt: string;
 }
-
-export type RunStreamEventType = "snapshot" | "progress" | "done";
-
-export interface RunStreamEvent {
-  type: RunStreamEventType;
-  run: RunSnapshot;
-}
