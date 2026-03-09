@@ -110,93 +110,18 @@ function sanitizeReportTemplate(template: string): string {
     .replace(/<title>\s*Report\s*-\s*Midscene\.js\s*<\/title>/i, '<title>Report</title>')
     .replace(/<link\s+rel="icon"[\s\S]*?\/>\s*/i, '');
 
-  const cleanupScript = `
+  const cleanupStyle = `
 <style>
 .page-nav,
-.page-nav-left,
-.page-nav-right,
-.page-nav .page-nav-left,
-.page-nav .page-nav-right {
+.version-info-section {
   display: none !important;
 }
-</style>
-<script>
-(() => {
-  const hideElement = (element) => {
-    if (!element || !(element instanceof HTMLElement)) return;
-    element.style.display = 'none';
-  };
-
-  const shouldHideText = (text) => {
-    if (!text) return false;
-    const normalized = text.replace(/\\s+/g, ' ').trim();
-    if (!normalized) return false;
-    return (
-      normalized === 'Midscene.js' ||
-      /^Midscene\\.js\\b/.test(normalized) ||
-      /^v\\d+\\.\\d+\\.\\d+\\b/i.test(normalized) ||
-      /qwen[\\w.-]*/i.test(normalized) ||
-      /insight\\//.test(normalized) ||
-      /default\\//.test(normalized)
-    );
-  };
-
-  const shouldHideNode = (element) => {
-    if (!element || !(element instanceof HTMLElement)) return false;
-
-    const rect = element.getBoundingClientRect();
-    if (rect.top > 160) return false;
-
-    const text = element.textContent || '';
-    const hasBrandText = shouldHideText(text);
-    const hasBrandImage = !!element.querySelector('img, svg');
-    const isHeaderLike = rect.height <= 140 && rect.width >= Math.min(window.innerWidth * 0.25, 320);
-
-    if (hasBrandText && element.childElementCount <= 24) {
-      return true;
-    }
-
-    return hasBrandImage && hasBrandText && isHeaderLike;
-  };
-
-  const hideBranding = () => {
-    document.title = 'Report';
-    document
-      .querySelectorAll('link[rel="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"]')
-      .forEach((element) => element.remove());
-
-    const elements = Array.from(document.body.querySelectorAll('*'));
-    for (const element of elements) {
-      if (!shouldHideNode(element)) continue;
-      const target = element.closest('header, nav, aside, section, div') || element;
-      hideElement(target);
-    }
-
-    const rootLevelSections = Array.from(document.body.children).filter((element) => {
-      if (!(element instanceof HTMLElement)) return false;
-      if (element.getBoundingClientRect().top > 160) return false;
-      return shouldHideText(element.textContent || '');
-    });
-    rootLevelSections.forEach((element) => hideElement(element));
-  };
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', hideBranding, { once: true });
-  } else {
-    hideBranding();
-  }
-
-  window.addEventListener('load', hideBranding, { once: true });
-  const observer = new MutationObserver(() => hideBranding());
-  observer.observe(document.documentElement, { childList: true, subtree: true });
-  setTimeout(() => observer.disconnect(), 10000);
-})();
-</script>`;
+</style>`;
 
   if (nextTemplate.includes('</body>')) {
-    nextTemplate = nextTemplate.replace('</body>', `${cleanupScript}</body>`);
+    nextTemplate = nextTemplate.replace('</body>', `${cleanupStyle}</body>`);
   } else {
-    nextTemplate += cleanupScript;
+    nextTemplate += cleanupStyle;
   }
 
   return nextTemplate;
