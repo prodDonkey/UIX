@@ -198,3 +198,53 @@ def test_runs_report_can_fallback_to_midscene_report_html(
     download = client.get(f"/api/runs/{run_id}/report/file?download=1")
     assert download.status_code == 200
     assert "attachment;" in (download.headers.get("content-disposition") or "")
+
+
+def test_runs_report_prefers_runtime_report_path_when_midscene_html_is_placeholder(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    report_root = tmp_path / "reports"
+    report_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(settings, "report_root_dir", str(report_root))
+
+    client, session_local = _build_test_client(tmp_path)
+    monkeypatch.setattr("app.api.runs.start_run_async", lambda run_id: None)
+
+    runtime_report = report_root / "runtime-report.html"
+    runtime_report.write_text("<html><body>runtime-report</body></html>", encoding="utf-8")
+    monkeypatch.setattr("app.api.runs.get_runtime_report_path", lambda run: str(runtime_report))
+    monkeypatch.setattr("app.api.runs.get_report_html", lambda run: None)
+
+    created_script = client.post(
+        "/api/scripts",
+        json={
+            "name": "运行脚本",
+            "content": "android:\n  deviceId: 'emulator-5554'\ntasks:\n  - name: 执行\n    flow:\n      - aiAction: 打开首页\n",
+            "source_type": "manual",
+        },
+    )
+    assert created_script.status_code == 201
+    script_id = created_script.json()["id"]
+
+    created_run = client.post("/api/runs", json={"script_id": script_id})
+    assert created_run.status_code == 201
+    run_id = created_run.json()["id"]
+
+    with session_local() as db:
+        run = db.get(Run, run_id)
+        assert run is not None
+        run.status = "success"
+        run.request_id = "req-report-runtime"
+        run.report_path = None
+        db.commit()
+
+    report = client.get(f"/api/runs/{run_id}/report")
+    assert report.status_code == 200
+    report_payload = report.json()
+    assert report_payload["report_path"] == str(runtime_report.resolve())
+    assert report_payload["preview_url"] is not None
+
+    preview = client.get(f"/api/runs/{run_id}/report/file")
+    assert preview.status_code == 200
+    assert "runtime-report" in preview.text

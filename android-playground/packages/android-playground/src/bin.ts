@@ -1,4 +1,5 @@
 import { exec } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { select } from '@inquirer/prompts';
@@ -69,7 +70,22 @@ async function selectDevice() {
   return selectedDevice;
 }
 
-const staticDir = path.join(__dirname, '../../static');
+function resolveStaticDir() {
+  const packagedStaticDir = path.join(__dirname, '../../static');
+  if (fs.existsSync(path.join(packagedStaticDir, 'index.html'))) {
+    return packagedStaticDir;
+  }
+
+  const appDistDir = path.join(__dirname, '../../../apps/android-playground/dist');
+  if (fs.existsSync(path.join(appDistDir, 'index.html'))) {
+    console.log(`📦 Using app dist as static assets: ${appDistDir}`);
+    return appDistDir;
+  }
+
+  return packagedStaticDir;
+}
+
+const staticDir = resolveStaticDir();
 // 报告保存到上级目录的 midscene_run/report，可通过 /report 路径访问
 const reportDir = path.join(__dirname, '../../midscene_run');
 const shouldAutoOpenPlayground =

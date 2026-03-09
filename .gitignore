@@ -8,10 +8,15 @@ node_modules/
 # Build outputs
 # =========================
 dist/
-build/
+/build/
 out/
 coverage/
 .nx/
+
+# 保留 Midscene 报告模板产物，供报告注入链路使用
+!android-playground/apps/report/
+!android-playground/apps/report/dist/
+!android-playground/apps/report/dist/index.html
 
 # =========================
 # Tool caches

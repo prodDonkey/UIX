@@ -23,6 +23,7 @@ from app.services.run_service import (
     create_run,
     get_report_html,
     get_report_path,
+    get_runtime_report_path,
     list_runs,
     read_run_logs,
     start_run_async,
@@ -30,6 +31,32 @@ from app.services.run_service import (
 
 router = APIRouter(prefix="/api/runs", tags=["runs"])
 logger = logging.getLogger("uvicorn.error")
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _allowed_report_roots() -> list[Path]:
+    roots = [
+        Path(settings.report_root_dir).resolve(),
+        (REPO_ROOT / "midscene_run" / "report").resolve(),
+        (REPO_ROOT / "runner-service" / "midscene_run" / "report").resolve(),
+        (
+            REPO_ROOT
+            / "android-playground"
+            / "packages"
+            / "android-playground"
+            / "midscene_run"
+            / "report"
+        ).resolve(),
+    ]
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        key = str(root)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(root)
+    return deduped
 
 
 @router.get("", response_model=list[RunListRead])
@@ -135,7 +162,7 @@ def get_run_report(
     run = db.get(Run, run_id)
     if not run:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
-    report_path = get_report_path(run)
+    report_path = get_report_path(run) or get_runtime_report_path(run)
     report_html = None if report_path else get_report_html(run)
     if not report_path and not report_html:
         return {"report_path": None, "preview_url": None, "download_url": None}
@@ -158,7 +185,7 @@ def get_run_report_file(
     if not run:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
 
-    report_path = get_report_path(run)
+    report_path = get_report_path(run) or get_runtime_report_path(run)
     if not report_path:
         report_html = get_report_html(run)
         if not report_html:
@@ -171,10 +198,9 @@ def get_run_report_file(
         return Response(content=report_html, media_type="text/html", headers=headers)
 
     report_file = Path(report_path).resolve()
-    allowed_root = Path(settings.report_root_dir).resolve()
     if not report_file.is_file():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report file not found")
-    if not report_file.is_relative_to(allowed_root):
+    if not any(report_file.is_relative_to(root) for root in _allowed_report_roots()):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Report path not allowed")
 
     if download:

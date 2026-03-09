@@ -54,9 +54,25 @@ interface AsyncTaskResult {
   dump: ExecutionDump | null;
   error: string | null;
   reportHTML: string | null;
+  reportPath: string | null;
   createdAt: number;
   startedAt: number | null;
   finishedAt: number | null;
+}
+
+function normalizeReportHTML(html: string | null | undefined): string | null {
+  if (!html || typeof html !== 'string') {
+    return null;
+  }
+  return html.includes('REPLACE_ME_WITH_REPORT_HTML') ? null : html;
+}
+
+function getAgentReportPath(agent: PageAgent | null | undefined): string | null {
+  const reportFile =
+    agent && typeof agent === 'object' && 'reportFile' in agent
+      ? (agent as { reportFile?: unknown }).reportFile
+      : null;
+  return typeof reportFile === 'string' && reportFile.trim() ? reportFile.trim() : null;
 }
 
 class PlaygroundServer {
@@ -247,6 +263,7 @@ class PlaygroundServer {
       dump: null,
       error: null,
       reportHTML: null,
+      reportPath: null,
       createdAt: Date.now(),
       startedAt: null,
       finishedAt: null,
@@ -349,12 +366,13 @@ class PlaygroundServer {
             return currentCount >= accCount ? current : acc;
           }, groupedDump.executions?.[0]) || null;
         this.mergeTaskExecutionDump(requestId, task.dump || undefined);
-        task.dump =
+      task.dump =
           (this.taskExecutionDumps[requestId] as ExecutionDump | null) ||
           task.dump;
       }
-      task.reportHTML =
-        this.agent.reportHTMLString({ inlineScreenshots: true }) || null;
+      task.reportHTML = normalizeReportHTML(
+        this.agent.reportHTMLString({ inlineScreenshots: true }) || null,
+      );
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
@@ -362,6 +380,7 @@ class PlaygroundServer {
         `[run-yaml] Failed to collect dump/report for ${requestId}: ${errorMessage}`,
       );
     }
+    task.reportPath = getAgentReportPath(this.agent);
   }
 
   private async runYamlTaskInBackground(
@@ -761,12 +780,14 @@ class PlaygroundServer {
         dump: ExecutionDump | null;
         error: string | null;
         reportHTML: string | null;
+        reportPath: string | null;
         requestId?: string;
       } = {
         result: null,
         dump: null,
         error: null,
         reportHTML: null,
+        reportPath: null,
         requestId,
       };
 
@@ -815,10 +836,12 @@ class PlaygroundServer {
         } else {
           response.dump = null;
         }
-        response.reportHTML =
-          this.agent.reportHTMLString({ inlineScreenshots: true }) || null;
+        response.reportHTML = normalizeReportHTML(
+          this.agent.reportHTMLString({ inlineScreenshots: true }) || null,
+        );
 
         this.agent.writeOutActionDumps();
+        response.reportPath = getAgentReportPath(this.agent);
         this.agent.resetDump();
       } catch (error: unknown) {
         const errorMessage =
@@ -876,6 +899,7 @@ class PlaygroundServer {
           // Get current execution data before cancelling (dump and reportHTML)
           let dump: any = null;
           let reportHTML: string | null = null;
+          let reportPath: string | null = null;
 
           try {
             const dumpString = this.agent.dumpDataString?.({
@@ -888,9 +912,11 @@ class PlaygroundServer {
               dump = groupedDump.executions?.[0] || null;
             }
 
-            reportHTML =
+            reportHTML = normalizeReportHTML(
               this.agent.reportHTMLString?.({ inlineScreenshots: true }) ||
-              null;
+                null,
+            );
+            reportPath = getAgentReportPath(this.agent);
           } catch (error: unknown) {
             console.warn('Failed to get execution data before cancel:', error);
           }
@@ -912,6 +938,7 @@ class PlaygroundServer {
             task.finishedAt = Date.now();
             task.dump = dump;
             task.reportHTML = reportHTML;
+            task.reportPath = reportPath;
             task.error = null;
           }
 
@@ -924,6 +951,7 @@ class PlaygroundServer {
             message: 'Task cancelled successfully',
             dump,
             reportHTML,
+            reportPath,
           });
         } catch (error: unknown) {
           const errorMessage =

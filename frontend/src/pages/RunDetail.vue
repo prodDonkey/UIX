@@ -23,7 +23,12 @@
       <el-descriptions-item label="开始时间">{{ formatDateTime(run.started_at) }}</el-descriptions-item>
       <el-descriptions-item label="结束时间">{{ formatDateTime(run.ended_at) }}</el-descriptions-item>
       <el-descriptions-item label="耗时(ms)">{{ run.duration_ms ?? '-' }}</el-descriptions-item>
-      <el-descriptions-item label="报告路径">{{ reportInfo?.report_path || run.report_path || '-' }}</el-descriptions-item>
+      <el-descriptions-item label="报告路径">
+        <el-link v-if="displayReportUrl" :href="displayReportUrl" target="_blank" type="primary">
+          {{ displayReportUrl }}
+        </el-link>
+        <span v-else>{{ reportInfo?.report_path || run.report_path || '-' }}</span>
+      </el-descriptions-item>
       <el-descriptions-item label="备注">{{ run.remark || '-' }}</el-descriptions-item>
     </el-descriptions>
 
@@ -168,6 +173,13 @@ const androidPlaygroundEmbedUrl = computed(() => {
   const rid = run.value?.request_id;
   if (!rid) return androidPlaygroundBaseUrl;
   return `${androidPlaygroundBaseUrl}/?requestId=${encodeURIComponent(rid)}`;
+});
+const displayReportUrl = computed(() => {
+  const previewUrl = reportInfo.value?.preview_url?.trim();
+  if (previewUrl) return previewUrl;
+  const reportPath = reportInfo.value?.report_path?.trim() || run.value?.report_path?.trim();
+  if (reportPath && /^https?:\/\//i.test(reportPath)) return reportPath;
+  return '';
 });
 
 const sortedHistory = computed(() =>

@@ -273,6 +273,22 @@ def get_report_path(run: Run) -> str | None:
     return run.report_path
 
 
+def get_runtime_report_path(run: Run) -> str | None:
+    if not run.request_id:
+        return None
+    try:
+        result = _midscene_task_result(run.request_id)
+    except Exception:
+        return None
+    value = _extract_report_path(result)
+    if not value:
+        return None
+    report_path = Path(value)
+    if report_path.exists() and report_path.is_file():
+        return str(report_path.resolve())
+    return value
+
+
 def get_report_html(run: Run) -> str | None:
     if not run.request_id:
         return None
@@ -282,6 +298,10 @@ def get_report_html(run: Run) -> str | None:
         return None
     report_html = result.get("reportHTML") or result.get("report_html")
     if isinstance(report_html, str) and report_html.strip():
+        # Midscene 某些环境会返回带占位符的模板 HTML，直接预览会是空白页。
+        # 这种内容不能作为最终报告返回，优先让上层继续寻找真实 reportPath。
+        if "REPLACE_ME_WITH_REPORT_HTML" in report_html:
+            return None
         return report_html
     return None
 

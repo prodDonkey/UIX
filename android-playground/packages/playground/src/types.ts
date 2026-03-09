@@ -20,6 +20,7 @@ export interface ServerResponse {
   result?: unknown;
   dump?: any;
   reportHTML?: string;
+  reportPath?: string | null;
   error?: string;
 }
 

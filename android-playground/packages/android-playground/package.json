@@ -12,7 +12,8 @@
   },
   "scripts": {
     "dev": "npm run build:watch",
-    "dev:server": "npm run build && node ./dist/lib/bin.js",
+    "build:ui": "corepack pnpm --dir ../../apps/android-playground build",
+    "dev:server": "npm run build:ui && npm run build && node ./dist/lib/bin.js",
     "prebuild": "node ../android/scripts/download-scrcpy-server.mjs --target=bin/scrcpy-server",
     "build": "rslib build",
     "build:watch": "rslib build --watch --no-clean",
