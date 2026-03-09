@@ -44,7 +44,7 @@
       <div class="playground-main">
         <h4 class="title device-title-row">
           <span>设备实时画面</span>
-          <div class="device-actions" v-if="!isEmbeddedAndroidPlayground">
+          <div class="device-actions">
             <el-button class="history-trigger" plain @click="historyDrawerVisible = true">
               同脚本历史执行
             </el-button>
@@ -192,12 +192,14 @@ function normalizeLoopbackUrl(rawUrl: string): string {
 const androidPlaygroundEmbedUrl = computed(() => {
   const query = new URLSearchParams({ embed: '1' });
   const rid = run.value?.request_id;
-  if (rid && isActiveRunStatus(run.value?.status)) {
+  // 只要拿到 requestId，就持续透传给 Playground。
+  // 这样历史任务、已完成任务也能回放/展示订阅到的执行过程，
+  // 避免任务一结束 iframe 立即丢失上下文，左侧面板退回欢迎页。
+  if (rid) {
     query.set('requestId', rid);
   }
   return `${androidPlaygroundBaseUrl}/?${query.toString()}`;
 });
-const isEmbeddedAndroidPlayground = true;
 const reportPreviewUrl = computed(() => {
   const previewUrl = reportInfo.value?.preview_url?.trim();
   if (!previewUrl) return '';
