@@ -111,6 +111,15 @@ function sanitizeReportTemplate(template: string): string {
     .replace(/<link\s+rel="icon"[\s\S]*?\/>\s*/i, '');
 
   const cleanupScript = `
+<style>
+.page-nav,
+.page-nav-left,
+.page-nav-right,
+.page-nav .page-nav-left,
+.page-nav .page-nav-right {
+  display: none !important;
+}
+</style>
 <script>
 (() => {
   const hideElement = (element) => {
