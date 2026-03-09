@@ -148,6 +148,10 @@ const statusTagType = computed(() => {
   return 'info';
 });
 
+function isActiveRunStatus(status?: Run['status'] | null) {
+  return status === 'queued' || status === 'running';
+}
+
 function formatRunStatus(status?: Run['status'] | null) {
   if (!status) return '未知';
   if (status === 'queued') return '排队中';
@@ -171,7 +175,7 @@ const androidPlaygroundBaseUrl = (
 ).replace(/\/+$/, '');
 const androidPlaygroundEmbedUrl = computed(() => {
   const rid = run.value?.request_id;
-  if (!rid) return androidPlaygroundBaseUrl;
+  if (!rid || !isActiveRunStatus(run.value?.status)) return androidPlaygroundBaseUrl;
   return `${androidPlaygroundBaseUrl}/?requestId=${encodeURIComponent(rid)}`;
 });
 const displayReportUrl = computed(() => {
@@ -198,7 +202,7 @@ const sortedHistory = computed(() =>
  */
 async function refresh(silent = false) {
   const now = Date.now();
-  const isRunning = run.value?.status === 'queued' || run.value?.status === 'running';
+  const isRunning = isActiveRunStatus(run.value?.status);
   // midsce request_id 在任务启动后才会回写，未拿到前每次轮询都拉详情，保证 iframe 及时订阅。
   const shouldFetchDetail =
     !isRunning || !silent || now - lastDetailFetchAt >= 8000 || (isRunning && !run.value?.request_id);
@@ -235,9 +239,9 @@ async function refresh(silent = false) {
   }
 }
 
-function getPollIntervalMs(status: Run['status'] | undefined): number {
-  if (status === 'queued' || status === 'running') return 2000;
-  return 8000;
+function getPollIntervalMs(status: Run['status'] | undefined): number | null {
+  if (isActiveRunStatus(status)) return 2000;
+  return null;
 }
 
 function resolveErrorMessage(error: unknown, fallback: string): string {
@@ -255,8 +259,13 @@ function resolveErrorMessage(error: unknown, fallback: string): string {
 
 async function pollingLoop() {
   while (!stopped) {
+    if (run.value && !isActiveRunStatus(run.value.status)) break;
+
     await refresh(true);
+
     const interval = getPollIntervalMs(run.value?.status);
+    if (!interval) break;
+
     await new Promise<void>((resolve) => {
       timer = window.setTimeout(() => {
         timer = null;
