@@ -14,6 +14,8 @@ declare const __APP_VERSION__: string;
  * Replaces the left panel with form and results
  */
 export default function PlaygroundPanel() {
+  const searchParams = new URLSearchParams(window.location.search);
+  const isEmbedded = searchParams.get('embed') === '1';
   // Get config from the global state
   const { config } = useEnvConfig();
 
@@ -69,6 +71,7 @@ export default function PlaygroundPanel() {
             showContextPreview: false,
             layout: 'vertical',
             showVersionInfo: false,
+            showPromptInput: !isEmbedded,
             enableScrollToBottom: true,
             serverMode: true,
             showEnvConfigReminder: true,

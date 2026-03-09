@@ -257,6 +257,7 @@ export function UniversalPlayground({
     showContextPreview && componentConfig.showContextPreview !== false;
   const layout = componentConfig.layout || 'vertical';
   const showVersionInfo = componentConfig.showVersionInfo !== false;
+  const showPromptInput = componentConfig.showPromptInput !== false;
   const deviceType = componentConfig.deviceType;
   const shouldShowEnvConfigReminder =
     !!componentConfig.showEnvConfigReminder && !componentConfig.serverMode;
@@ -434,23 +435,25 @@ export function UniversalPlayground({
         </div>
 
         {/* Bottom Input Section */}
+        {showPromptInput && (
           <div className="bottom-input-section">
             {shouldShowEnvConfigReminder ? <EnvConfigReminder /> : null}
             <PromptInput
-            runButtonEnabled={runButtonEnabled}
-            form={form}
-            serviceMode={serviceMode}
-            selectedType={selectedType}
-            dryMode={dryMode}
-            stoppable={canStop}
-            loading={loading}
-            onRun={handleFormRun}
-            onStop={handleStop}
-            actionSpace={actionSpace}
-            deviceType={deviceType}
-            disableDefaultParams={isRequestIdMode}
-          />
-        </div>
+              runButtonEnabled={runButtonEnabled}
+              form={form}
+              serviceMode={serviceMode}
+              selectedType={selectedType}
+              dryMode={dryMode}
+              stoppable={canStop}
+              loading={loading}
+              onRun={handleFormRun}
+              onStop={handleStop}
+              actionSpace={actionSpace}
+              deviceType={deviceType}
+              disableDefaultParams={isRequestIdMode}
+            />
+          </div>
+        )}
 
         {/* Version Info Section */}
         {showVersionInfo && branding.version && (

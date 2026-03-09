@@ -44,7 +44,7 @@
       <div class="playground-main">
         <h4 class="title device-title-row">
           <span>设备实时画面</span>
-          <div class="device-actions">
+          <div class="device-actions" v-if="!isEmbeddedAndroidPlayground">
             <el-button class="history-trigger" plain @click="historyDrawerVisible = true">
               同脚本历史执行
             </el-button>
@@ -190,10 +190,14 @@ function normalizeLoopbackUrl(rawUrl: string): string {
 }
 
 const androidPlaygroundEmbedUrl = computed(() => {
+  const query = new URLSearchParams({ embed: '1' });
   const rid = run.value?.request_id;
-  if (!rid || !isActiveRunStatus(run.value?.status)) return androidPlaygroundBaseUrl;
-  return `${androidPlaygroundBaseUrl}/?requestId=${encodeURIComponent(rid)}`;
+  if (rid && isActiveRunStatus(run.value?.status)) {
+    query.set('requestId', rid);
+  }
+  return `${androidPlaygroundBaseUrl}/?${query.toString()}`;
 });
+const isEmbeddedAndroidPlayground = true;
 const reportPreviewUrl = computed(() => {
   const previewUrl = reportInfo.value?.preview_url?.trim();
   if (!previewUrl) return '';

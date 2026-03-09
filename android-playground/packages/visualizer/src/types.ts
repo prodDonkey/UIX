@@ -371,6 +371,7 @@ export interface UniversalPlaygroundConfig {
   storageNamespace?: string;
   layout?: 'vertical' | 'horizontal';
   showVersionInfo?: boolean;
+  showPromptInput?: boolean;
   enableScrollToBottom?: boolean;
   serverMode?: boolean;
   showEnvConfigReminder?: boolean;
