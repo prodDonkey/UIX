@@ -59,10 +59,10 @@
 
     <h4 class="title">报告预览</h4>
     <div class="report-actions">
-      <el-button :disabled="!reportInfo?.preview_url" @click="openPreview">新窗口预览</el-button>
-      <el-button type="primary" :disabled="!reportInfo?.download_url" @click="downloadReport">下载报告</el-button>
+      <el-button :disabled="!reportPreviewUrl" @click="openPreview">新窗口预览</el-button>
+      <el-button type="primary" :disabled="!reportDownloadUrl" @click="downloadReport">下载报告</el-button>
     </div>
-    <iframe v-if="reportInfo?.preview_url" :src="reportInfo.preview_url" class="report-frame" />
+    <iframe v-if="reportPreviewUrl" :src="reportPreviewUrl" class="report-frame" />
     <el-empty v-else description="暂无报告（任务完成后生成）" />
   </el-card>
 
@@ -173,13 +173,39 @@ const canRerun = computed(() => !isCancelling.value && !isRerunning.value && !!r
 const androidPlaygroundBaseUrl = (
   import.meta.env.VITE_ANDROID_PLAYGROUND_URL || 'http://localhost:5800'
 ).replace(/\/+$/, '');
+
+function normalizeLoopbackUrl(rawUrl: string): string {
+  if (!rawUrl) return rawUrl;
+  try {
+    const target = new URL(rawUrl);
+    const current = new URL(window.location.href);
+    const loopbackHosts = new Set(['localhost', '127.0.0.1', '0.0.0.0']);
+    if (loopbackHosts.has(target.hostname) && loopbackHosts.has(current.hostname)) {
+      target.hostname = current.hostname;
+    }
+    return target.toString();
+  } catch {
+    return rawUrl;
+  }
+}
+
 const androidPlaygroundEmbedUrl = computed(() => {
   const rid = run.value?.request_id;
   if (!rid || !isActiveRunStatus(run.value?.status)) return androidPlaygroundBaseUrl;
   return `${androidPlaygroundBaseUrl}/?requestId=${encodeURIComponent(rid)}`;
 });
-const displayReportUrl = computed(() => {
+const reportPreviewUrl = computed(() => {
   const previewUrl = reportInfo.value?.preview_url?.trim();
+  if (!previewUrl) return '';
+  return normalizeLoopbackUrl(previewUrl);
+});
+const reportDownloadUrl = computed(() => {
+  const downloadUrl = reportInfo.value?.download_url?.trim();
+  if (!downloadUrl) return '';
+  return normalizeLoopbackUrl(downloadUrl);
+});
+const displayReportUrl = computed(() => {
+  const previewUrl = reportPreviewUrl.value;
   if (previewUrl) return previewUrl;
   const reportPath = reportInfo.value?.report_path?.trim() || run.value?.report_path?.trim();
   if (reportPath && /^https?:\/\//i.test(reportPath)) return reportPath;
@@ -365,13 +391,13 @@ function formatHistoryTime(_: unknown, __: unknown, value: string | null) {
 }
 
 function openPreview() {
-  if (!reportInfo.value?.preview_url) return;
-  window.open(reportInfo.value.preview_url, '_blank');
+  if (!reportPreviewUrl.value) return;
+  window.open(reportPreviewUrl.value, '_blank');
 }
 
 function downloadReport() {
-  if (!reportInfo.value?.download_url) return;
-  window.open(reportInfo.value.download_url, '_blank');
+  if (!reportDownloadUrl.value) return;
+  window.open(reportDownloadUrl.value, '_blank');
 }
 
 function openAndroidPlayground() {

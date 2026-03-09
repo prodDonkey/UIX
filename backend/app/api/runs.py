@@ -213,6 +213,15 @@ def get_run_report_file(
     )
 
 
+@router.head("/{run_id}/report/file", include_in_schema=False)
+def head_run_report_file(
+    run_id: int,
+    download: int = Query(default=0),
+    db: Session = Depends(get_db),
+) -> FileResponse:
+    return get_run_report_file(run_id=run_id, download=download, db=db)
+
+
 def _compact_progress_json(progress_json: str | None) -> str | None:
     """
     兼容历史数据：若 progress_json 含有超大 uiContext/screenshot，返回瘦身后的 JSON 字符串。

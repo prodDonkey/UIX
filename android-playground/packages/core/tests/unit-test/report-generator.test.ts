@@ -274,6 +274,28 @@ describe('ReportGenerator — constant memory guarantees', () => {
       // dump2 has 2 tasks (2 screenshots)
       expect(parsed.executions[0].tasks).toHaveLength(2);
     });
+
+    it('should place dump script before closing html tag', async () => {
+      const reportPath = join(tmpDir, 'dump-before-html-test.html');
+      const generator = new ReportGenerator({
+        reportPath,
+        screenshotMode: 'inline',
+        autoPrint: false,
+      });
+
+      const screenshot = ScreenshotItem.create(fakeBase64(100), Date.now());
+      const dump = createDump([screenshot]);
+
+      generator.onDumpUpdate(dump);
+      await generator.flush();
+
+      const html = readFileSync(reportPath, 'utf-8');
+      const dumpIndex = html.lastIndexOf('<script type="midscene_web_dump"');
+      const htmlEndIndex = html.lastIndexOf('</html>');
+
+      expect(dumpIndex).toBeGreaterThan(-1);
+      expect(htmlEndIndex).toBeGreaterThan(dumpIndex);
+    });
   });
 
   describe('directory mode — incremental PNG writes', () => {

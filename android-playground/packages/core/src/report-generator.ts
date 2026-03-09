@@ -60,6 +60,15 @@ export class ReportGenerator implements IReportGenerator {
   private writeQueue: Promise<void> = Promise.resolve();
   private destroyed = false;
 
+  private stripClosingHtml(template: string): string {
+    const closingTag = '</html>';
+    const index = template.lastIndexOf(closingTag);
+    if (index < 0) {
+      return template;
+    }
+    return template.slice(0, index);
+  }
+
   constructor(options: {
     reportPath: string;
     screenshotMode: 'inline' | 'directory';
@@ -160,12 +169,12 @@ export class ReportGenerator implements IReportGenerator {
     }
 
     if (!this.initialized) {
-      writeFileSync(this.reportPath, getReportTpl());
+      writeFileSync(this.reportPath, this.stripClosingHtml(getReportTpl()));
       this.imageEndOffset = statSync(this.reportPath).size;
       this.initialized = true;
     }
 
-    // 1. truncate: remove old dump JSON, keep template + existing image tags
+    // 1. truncate: remove old dump JSON and trailing </html>, keep template + existing image tags
     truncateSync(this.reportPath, this.imageEndOffset);
 
     // 2. append new image tags and release memory immediately after writing
@@ -188,7 +197,10 @@ export class ReportGenerator implements IReportGenerator {
 
     // 4. append new dump JSON (compact { $screenshot: id } format)
     const serialized = dump.serialize();
-    appendFileSync(this.reportPath, `\n${generateDumpScriptTag(serialized)}`);
+    appendFileSync(
+      this.reportPath,
+      `\n${generateDumpScriptTag(serialized)}\n</html>\n`,
+    );
   }
 
   private writeDirectoryReport(dump: GroupedActionDump): void {
@@ -224,7 +236,7 @@ export class ReportGenerator implements IReportGenerator {
     const serialized = dump.serialize();
     writeFileSync(
       this.reportPath,
-      `${getReportTpl()}${getBaseUrlFixScript()}${generateDumpScriptTag(serialized)}`,
+      `${this.stripClosingHtml(getReportTpl())}${getBaseUrlFixScript()}${generateDumpScriptTag(serialized)}\n</html>\n`,
     );
   }
 }

@@ -149,6 +149,10 @@ def test_runs_detail_logs_report_and_progress_still_available(
     assert preview.status_code == 200
     assert "text/html" in preview.headers.get("content-type", "")
 
+    preview_head = client.head(f"/api/runs/{run_id}/report/file")
+    assert preview_head.status_code == 200
+    assert "text/html" in preview_head.headers.get("content-type", "")
+
 
 def test_runs_report_can_fallback_to_midscene_report_html(
     tmp_path: Path,
