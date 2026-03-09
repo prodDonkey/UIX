@@ -80,7 +80,7 @@ const reportInitializedMap = new Map<string, boolean>();
 
 declare const __DEV_REPORT_PATH__: string;
 
-export function getReportTpl() {
+function getRawReportTpl() {
   if (typeof __DEV_REPORT_PATH__ === 'string' && __DEV_REPORT_PATH__) {
     try {
       if (existsSync(__DEV_REPORT_PATH__)) {
@@ -193,6 +193,10 @@ function sanitizeReportTemplate(template: string): string {
   return nextTemplate;
 }
 
+export function getReportTpl() {
+  return sanitizeReportTemplate(getRawReportTpl());
+}
+
 /**
  * high performance, insert script before </html> in HTML file
  * only truncate and append, no temporary file
@@ -235,7 +239,7 @@ export function reportHTMLContent(
 ): string {
   let tpl = '';
   if (withTpl) {
-    tpl = sanitizeReportTemplate(getReportTpl());
+    tpl = getReportTpl();
 
     if (!tpl) {
       console.warn('reportTpl is not set, will not write report');
