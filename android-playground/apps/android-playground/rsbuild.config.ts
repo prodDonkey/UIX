@@ -49,6 +49,10 @@ export default defineConfig({
         __dirname,
         '../../packages/shared/src/polyfills/async-hooks.ts',
       ),
+      '@midscene/visualizer': path.join(
+        __dirname,
+        '../../packages/visualizer/dist/lib/index.js',
+      ),
       react: path.resolve(__dirname, 'node_modules/react'),
       'react-dom': path.resolve(__dirname, 'node_modules/react-dom'),
     },
