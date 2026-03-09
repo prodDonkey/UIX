@@ -63,14 +63,9 @@ def cancel_run(db: Session, run_id: int) -> Run | None:
         return None
 
     if run.status not in ("queued", "running"):
-        _append_log_line(run.log_path, f"[{_now_str()}] cancel ignored for run {run_id} status={run.status}")
         return run
 
     if run.request_id:
-        _append_log_line(
-            run.log_path,
-            f"[{_now_str()}] midsce cancel start run={run_id} requestId={run.request_id}",
-        )
         cancel_result = _midscene_cancel_task(run.request_id)
         cancel_status = str(cancel_result.get("status") or "").strip().lower()
         if cancel_status not in ("cancelled", "completed"):
@@ -78,7 +73,6 @@ def cancel_run(db: Session, run_id: int) -> Run | None:
                 f"midsce cancel failed for requestId={run.request_id}: "
                 f"{cancel_result.get('message') or cancel_result.get('error') or cancel_status or 'unknown'}"
             )
-            _append_log_line(run.log_path, f"[{_now_str()}] {message}")
             raise RuntimeError(message)
 
         run.status = "cancelled"
@@ -90,10 +84,6 @@ def cancel_run(db: Session, run_id: int) -> Run | None:
             run.report_path = report_path
         db.commit()
         db.refresh(run)
-        _append_log_line(
-            run.log_path,
-            f"[{_now_str()}] midsce cancel done run={run_id} requestId={run.request_id}",
-        )
         return run
 
     run.status = "cancelled"
@@ -102,13 +92,10 @@ def cancel_run(db: Session, run_id: int) -> Run | None:
         run.duration_ms = int((run.ended_at - run.started_at).total_seconds() * 1000)
     db.commit()
     db.refresh(run)
-
-    _append_log_line(run.log_path, f"[{_now_str()}] cancel requested for run {run_id} before midsce accept")
     return run
 
 
 def _execute_run(run_id: int) -> None:
-    log_path: str | None = None
     started_at: datetime | None = None
     request_id: str | None = None
     last_progress: dict | None = None
@@ -125,13 +112,8 @@ def _execute_run(run_id: int) -> None:
                 db.commit()
                 return
 
-            logs_dir = Path(settings.run_logs_dir)
-            logs_dir.mkdir(parents=True, exist_ok=True)
-            current_log_path = logs_dir / f"run-{run.id}.log"
-
             run.status = "running"
             run.started_at = datetime.utcnow()
-            run.log_path = str(current_log_path.resolve())
             run.current_task = None
             run.current_action = None
             run.progress_json = None
@@ -139,11 +121,9 @@ def _execute_run(run_id: int) -> None:
             run.request_id = None
             db.commit()
 
-            log_path = run.log_path
             started_at = run.started_at
             script_content = script.content
 
-        _append_log_line(log_path, f"[{_now_str()}] midsce start run={run_id}")
         run_yaml_result = _midscene_run_yaml(script_content)
         request_id = str(run_yaml_result.get("requestId") or "").strip()
         if not request_id:
@@ -152,13 +132,9 @@ def _execute_run(run_id: int) -> None:
         with SessionLocal() as db:
             run = db.get(Run, run_id)
             if not run or run.status == "cancelled":
-                if run and run.status == "cancelled":
-                    _append_log_line(log_path, f"[{_now_str()}] cancelled locally before requestId persisted")
                 return
             run.request_id = request_id
             db.commit()
-
-        _append_log_line(log_path, f"[{_now_str()}] midsce accepted requestId={request_id}")
 
         poll_interval_sec = max(settings.midscene_status_poll_interval_ms, 500) / 1000
         while True:
@@ -167,14 +143,12 @@ def _execute_run(run_id: int) -> None:
                 if not run:
                     return
                 if run.status == "cancelled":
-                    _append_log_line(log_path, f"[{_now_str()}] cancelled by user")
                     return
 
             try:
                 progress = _midscene_task_progress(request_id)
                 last_progress = progress
             except Exception as exc:  # noqa: BLE001
-                _append_log_line(log_path, f"[{_now_str()}] task-progress fetch error={exc}")
                 progress = {}
 
             compact_progress = _compact_midscene_progress(progress, run_id)
@@ -183,7 +157,6 @@ def _execute_run(run_id: int) -> None:
                 if not run:
                     return
                 if run.status == "cancelled":
-                    _append_log_line(log_path, f"[{_now_str()}] cancelled by user")
                     return
                 run.current_task = compact_progress.get("currentTask")
                 run.current_action = compact_progress.get("currentAction")
@@ -215,21 +188,7 @@ def _execute_run(run_id: int) -> None:
                         run.current_action = final_progress.get("currentAction")
                         run.progress_json = json.dumps(final_progress, ensure_ascii=False)
                     db.commit()
-                _append_log_line(
-                    log_path,
-                    f"[{_now_str()}] midsce finished status={midscene_status} mapped={run_status}",
-                )
                 return
-
-            _append_log_line(
-                log_path,
-                (
-                    f"[{_now_str()}] midsce polling status={midscene_status or '-'} "
-                    f"task={compact_progress.get('currentTask') or '-'} "
-                    f"action={compact_progress.get('currentAction') or '-'} "
-                    f"progress={compact_progress.get('completed') or 0}/{compact_progress.get('total') or 0}"
-                ),
-            )
             time.sleep(poll_interval_sec)
     except Exception as exc:  # noqa: BLE001
         with SessionLocal() as db:
@@ -244,24 +203,6 @@ def _execute_run(run_id: int) -> None:
                 if request_id and not run.request_id:
                     run.request_id = request_id
                 db.commit()
-                _append_log_line(run.log_path or log_path, f"[{_now_str()}] failed error={exc}")
-
-
-def read_run_logs(run: Run, tail_bytes: int = 50_000) -> str:
-    if not run.log_path:
-        return ""
-    path = Path(run.log_path)
-    if not path.exists() or not path.is_file():
-        return ""
-    with path.open("rb") as file:
-        file.seek(0, 2)
-        size = file.tell()
-        if size <= tail_bytes:
-            file.seek(0)
-        else:
-            file.seek(size - tail_bytes)
-        data = file.read()
-    return data.decode("utf-8", errors="ignore")
 
 
 def get_report_path(run: Run) -> str | None:
@@ -314,6 +255,12 @@ def _midscene_task_progress(request_id: str) -> dict:
     return _midscene_request("GET", f"/task-progress/{request_id}")
 
 
+def get_run_task_progress(run: Run) -> dict:
+    if not run.request_id:
+        return {"executionDump": None}
+    return _midscene_task_progress(run.request_id)
+
+
 def _midscene_task_result(request_id: str) -> dict:
     return _midscene_request("GET", f"/task-result/{request_id}")
 
@@ -360,25 +307,6 @@ def _extract_report_path(result: dict) -> str | None:
     if isinstance(value, str) and value.strip():
         return value.strip()
     return None
-
-
-def _append_log_line(log_path: str | None, content: str) -> None:
-    if not log_path:
-        return
-    try:
-        path = Path(log_path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as file:
-            file.write(content)
-            file.write("\n")
-    except Exception:
-        return
-
-
-def _now_str() -> str:
-    return datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-
-
 def _compact_midscene_progress(progress: dict, run_id: int) -> dict:
     tasks = progress.get("tasks")
     compact_tasks: list[dict] = []

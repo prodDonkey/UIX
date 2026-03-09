@@ -10,7 +10,6 @@ class Settings(BaseSettings):
     app_env: str = "dev"
     database_url: str = "sqlite:///./app.db"
     run_scripts_dir: str = "./runtime/scripts"
-    run_logs_dir: str = "./runtime/logs"
     run_command_prefix: str = "npx midscene"
     runner_base_url: str = "http://127.0.0.1:8100"
     runner_timeout_sec: int = 10

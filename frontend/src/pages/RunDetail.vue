@@ -41,18 +41,41 @@
     />
 
     <div class="playground-panel">
-      <div class="playground-main">
-        <h4 class="title device-title-row">
-          <span>设备实时画面</span>
-          <div class="device-actions">
-            <el-button class="history-trigger" plain @click="historyDrawerVisible = true">
-              同脚本历史执行
-            </el-button>
-            <el-button link type="primary" @click="openAndroidPlayground">打开 Android Playground</el-button>
+      <div
+        ref="taskLogLayoutRef"
+        class="playground-main task-log-main"
+        :style="{ gridTemplateColumns: `${taskLogPanelWidth}px 10px minmax(0, 1fr)` }"
+      >
+        <div class="task-log-panel">
+          <h4 class="title">临时执行日志</h4>
+          <el-empty v-if="!taskLogs.length" description="暂无实时日志" />
+          <div v-else class="task-log-list">
+            <div v-for="item in taskLogs" :key="item.key" class="task-log-item">
+              <div class="task-log-header">
+                <span class="task-log-type">{{ item.title }}</span>
+                <span class="task-log-status">{{ item.status }}</span>
+              </div>
+              <div class="task-log-content">{{ item.content }}</div>
+            </div>
           </div>
-        </h4>
-        <div class="device-frame-shell">
-          <iframe :src="androidPlaygroundEmbedUrl" class="device-frame main-device-frame" />
+        </div>
+        <div
+          class="task-log-resizer"
+          @mousedown="startResize"
+        />
+        <div class="device-preview-panel">
+          <h4 class="title device-title-row">
+            <span>设备实时画面</span>
+            <div class="device-actions">
+              <el-button class="history-trigger" plain @click="historyDrawerVisible = true">
+                同脚本历史执行
+              </el-button>
+              <el-button link type="primary" @click="openAndroidPlayground">打开 Android Playground</el-button>
+            </div>
+          </h4>
+          <div class="device-frame-shell">
+            <iframe :src="androidPlaygroundEmbedUrl" class="device-frame main-device-frame" />
+          </div>
         </div>
       </div>
     </div>
@@ -135,10 +158,14 @@ const reportInfo = ref<RunReport | null>(null);
 const isCancelling = ref(false);
 const isRerunning = ref(false);
 const historyDrawerVisible = ref(false);
+const taskLogs = ref<Array<{ key: string; title: string; status: string; content: string }>>([]);
+const taskLogLayoutRef = ref<HTMLElement | null>(null);
+const taskLogPanelWidth = ref(360);
 
 let timer: number | null = null;
 let stopped = false;
 let lastDetailFetchAt = 0;
+let stopResizeListeners: (() => void) | null = null;
 
 const statusTagType = computed(() => {
   if (!run.value) return 'info';
@@ -157,6 +184,16 @@ function formatRunStatus(status?: Run['status'] | null) {
   if (status === 'queued') return '排队中';
   if (status === 'running') return '执行中';
   if (status === 'success') return '成功';
+  if (status === 'failed') return '失败';
+  if (status === 'cancelled') return '已取消';
+  return status;
+}
+
+function formatTaskStatus(status?: string | null) {
+  if (!status) return '未知';
+  if (status === 'finished' || status === 'completed') return '已完成';
+  if (status === 'running') return '执行中';
+  if (status === 'pending') return '等待中';
   if (status === 'failed') return '失败';
   if (status === 'cancelled') return '已取消';
   return status;
@@ -190,15 +227,19 @@ function normalizeLoopbackUrl(rawUrl: string): string {
 }
 
 const androidPlaygroundEmbedUrl = computed(() => {
-  const query = new URLSearchParams({ embed: '1' });
+  const query = new URLSearchParams({ embed: '1', deviceOnly: '1' });
   const rid = run.value?.request_id;
+  if (run.value?.id) {
+    query.set('runId', String(run.value.id));
+  }
+  query.set('sourceOrigin', window.location.origin);
   // 只要拿到 requestId，就持续透传给 Playground。
   // 这样历史任务、已完成任务也能回放/展示订阅到的执行过程，
   // 避免任务一结束 iframe 立即丢失上下文，左侧面板退回欢迎页。
   if (rid) {
     query.set('requestId', rid);
   }
-  return `${androidPlaygroundBaseUrl}/?${query.toString()}`;
+  return normalizeLoopbackUrl(`${androidPlaygroundBaseUrl}/?${query.toString()}`);
 });
 const reportPreviewUrl = computed(() => {
   const previewUrl = reportInfo.value?.preview_url?.trim();
@@ -226,6 +267,44 @@ const sortedHistory = computed(() =>
     return b.id - a.id;
   }),
 );
+
+async function refreshTaskLogs(silent = true) {
+  const requestId = run.value?.request_id?.trim();
+  if (!requestId) {
+    taskLogs.value = [];
+    return;
+  }
+
+  try {
+    const data = await runApi.taskProgress(runId.value);
+    const tasks = Array.isArray(data?.executionDump?.tasks) ? data.executionDump.tasks : [];
+    const nextLogs = tasks
+      .map((task: any, index: number) => {
+        const content =
+          task?.output?.log?.trim() ||
+          task?.output?.thought?.trim() ||
+          task?.thought?.trim() ||
+          '';
+        if (!content) {
+          return null;
+        }
+        const type = [task?.type, task?.subType].filter(Boolean).join(' / ') || 'Task';
+        return {
+          key: `${task?.taskId || index}-${task?.status || 'unknown'}-${content}`,
+          title: type,
+          status: formatTaskStatus(task?.status),
+          content,
+        };
+      })
+      .filter(Boolean);
+    taskLogs.value = nextLogs;
+  } catch (error) {
+    if (!silent) {
+      ElMessage.error('获取实时日志失败，请稍后重试');
+    }
+    console.warn('[RunDetail] 获取 task-progress 日志失败', error);
+  }
+}
 
 /**
  * 刷新运行详情数据。
@@ -269,6 +348,8 @@ async function refresh(silent = false) {
   } else {
     console.warn('[RunDetail] 获取报告失败', reportResult.reason);
   }
+
+  await refreshTaskLogs(true);
 }
 
 function getPollIntervalMs(status: Run['status'] | undefined): number | null {
@@ -410,6 +491,40 @@ function openAndroidPlayground() {
   window.open(androidPlaygroundEmbedUrl.value, '_blank');
 }
 
+function stopResize() {
+  stopResizeListeners?.();
+  stopResizeListeners = null;
+  document.body.classList.remove('task-log-resizing');
+}
+
+function startResize(event: MouseEvent) {
+  const layout = taskLogLayoutRef.value;
+  if (!layout) return;
+
+  const rect = layout.getBoundingClientRect();
+  const minWidth = 280;
+  const maxWidth = Math.max(minWidth, rect.width - 360);
+
+  const handleMouseMove = (moveEvent: MouseEvent) => {
+    const nextWidth = moveEvent.clientX - rect.left;
+    taskLogPanelWidth.value = Math.min(maxWidth, Math.max(minWidth, nextWidth));
+  };
+
+  const handleMouseUp = () => {
+    stopResize();
+  };
+
+  stopResize();
+  document.body.classList.add('task-log-resizing');
+  window.addEventListener('mousemove', handleMouseMove);
+  window.addEventListener('mouseup', handleMouseUp, { once: true });
+  stopResizeListeners = () => {
+    window.removeEventListener('mousemove', handleMouseMove);
+    window.removeEventListener('mouseup', handleMouseUp);
+  };
+  event.preventDefault();
+}
+
 onMounted(async () => {
   stopped = false;
   await refresh(true);
@@ -428,6 +543,7 @@ watch(
 
 onBeforeUnmount(() => {
   stopped = true;
+  stopResize();
   if (timer) window.clearTimeout(timer);
 });
 </script>
@@ -481,6 +597,35 @@ onBeforeUnmount(() => {
 .playground-panel {
   display: block;
 }
+.task-log-main {
+  display: grid;
+  grid-template-columns: 360px 10px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.task-log-resizer {
+  width: 10px;
+  align-self: stretch;
+  cursor: col-resize;
+  position: relative;
+}
+.task-log-resizer::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  width: 2px;
+  height: 100%;
+  border-radius: 999px;
+  background: #d1d5db;
+}
+.task-log-resizer:hover::before {
+  background: #60a5fa;
+}
+.device-preview-panel {
+  min-width: 0;
+}
 .device-frame {
   width: 100%;
   height: 100%;
@@ -489,7 +634,7 @@ onBeforeUnmount(() => {
 }
 .device-frame-shell {
   width: 100%;
-  height: clamp(420px, 34vw, 560px);
+  height: clamp(640px, 70vh, 980px);
   border: 1px solid #e5e7eb;
   border-radius: 12px;
   overflow: hidden;
@@ -498,6 +643,46 @@ onBeforeUnmount(() => {
 }
 .main-device-frame {
   min-height: 0;
+}
+.task-log-panel {
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.task-log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: clamp(640px, 70vh, 980px);
+  overflow: auto;
+  padding-right: 6px;
+}
+.task-log-item {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: #fff;
+}
+.task-log-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.task-log-type {
+  font-weight: 600;
+  color: #111827;
+}
+.task-log-status {
+  font-size: 12px;
+  color: #6b7280;
+}
+.task-log-content {
+  white-space: pre-wrap;
+  color: #374151;
+  line-height: 1.6;
 }
 .history-drawer :deep(.el-drawer__body) {
   padding-top: 0;
@@ -530,12 +715,21 @@ onBeforeUnmount(() => {
     flex-direction: column;
     align-items: flex-start;
   }
+  .task-log-main {
+    grid-template-columns: 1fr;
+  }
+  .task-log-resizer {
+    display: none;
+  }
+  .task-log-list {
+    max-height: none;
+  }
   .device-actions {
     width: 100%;
     justify-content: space-between;
   }
   .device-frame-shell {
-    height: 460px;
+    height: 540px;
   }
 }
 </style>

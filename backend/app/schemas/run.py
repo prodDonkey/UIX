@@ -14,7 +14,6 @@ class RunRead(BaseModel):
     started_at: datetime | None
     ended_at: datetime | None
     duration_ms: int | None
-    log_path: str | None
     report_path: str | None
     summary_path: str | None
     request_id: str | None = None
@@ -47,11 +46,6 @@ class RunListRead(BaseModel):
 
     class Config:
         from_attributes = True
-
-
-class RunLogsResponse(BaseModel):
-    content: str
-
 
 class RunProgressRead(BaseModel):
     run_id: int

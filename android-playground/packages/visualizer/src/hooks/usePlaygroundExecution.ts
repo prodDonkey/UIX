@@ -32,12 +32,45 @@ function formatError(error: any): string {
   }
 }
 
+function normalizeProgressText(value: unknown): string {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  return normalized;
+}
+
+function extractTaskLogText(task: any): string {
+  const candidates = [
+    task?.output?.log,
+    task?.output?.thought,
+    task?.thought,
+    task?.errorMessage,
+    task?.param?.thought,
+  ];
+
+  for (const candidate of candidates) {
+    const text = normalizeProgressText(candidate);
+    if (text) {
+      return text;
+    }
+  }
+
+  return '';
+}
+
 /**
  * Build progress content string from task information
  * @param task - The execution task to build content from
  * @returns Formatted content string with action and optional description
  */
 function buildProgressContent(task: any): string {
+  const logText = extractTaskLogText(task);
+  if (logText) {
+    return logText;
+  }
+
   const action = typeStr(task);
   const description = paramStr(task);
   return description ? `${action} - ${description}` : action;
@@ -97,6 +130,62 @@ export interface UsePlaygroundExecutionOptions {
   currentRunningIdRef: React.MutableRefObject<number | null>;
   interruptedFlagRef: React.MutableRefObject<Record<number, boolean>>;
   deviceType?: string;
+  fallbackRunId?: number | null;
+  fallbackApiBaseUrl?: string | null;
+}
+
+interface BackendRunDetail {
+  id: number;
+  status: 'queued' | 'running' | 'success' | 'failed' | 'cancelled';
+  error_message?: string | null;
+}
+
+interface BackendRunProgress {
+  progress_json?: string | null;
+}
+
+function parseExecutionDumpFromBackendProgress(
+  progressPayload: BackendRunProgress | null,
+): IExecutionDump | ExecutionDump | null {
+  const raw = progressPayload?.progress_json;
+  if (!raw || typeof raw !== 'string') {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    const executionDump = parsed?.executionDump;
+    if (
+      executionDump &&
+      typeof executionDump === 'object' &&
+      Array.isArray(executionDump.tasks)
+    ) {
+      return executionDump as IExecutionDump;
+    }
+  } catch (error) {
+    console.warn('[Playground] Failed to parse backend progress_json:', error);
+  }
+
+  return null;
+}
+
+function buildSessionItemId(
+  kind: 'system' | 'progress' | 'result' | 'separator',
+  sessionId: number,
+  prefix?: string,
+  taskIndex?: number,
+): string {
+  const normalizedPrefix = prefix?.trim();
+  if (kind === 'progress') {
+    const base = normalizedPrefix
+      ? `progress-${normalizedPrefix}-${sessionId}`
+      : `progress-${sessionId}`;
+    return `${base}-task-${taskIndex ?? 0}`;
+  }
+
+  return normalizedPrefix
+    ? `${kind}-${normalizedPrefix}-${sessionId}`
+    : `${kind}-${sessionId}`;
 }
 
 /**
@@ -116,10 +205,190 @@ export function usePlaygroundExecution(options: UsePlaygroundExecutionOptions) {
     currentRunningIdRef,
     interruptedFlagRef,
     deviceType,
+    fallbackRunId,
+    fallbackApiBaseUrl,
   } = options;
   // Get execution options from environment config
   const { deepLocate, deepThink, screenshotIncluded, domIncluded } =
     useEnvConfig();
+
+  const applyProgressItems = useCallback(
+    (
+      sessionId: number,
+      executionDump: ExecutionDump | IExecutionDump | null | undefined,
+      idPrefix: string,
+    ) => {
+      if (!executionDump?.tasks?.length) {
+        return;
+      }
+
+      const progressItems: InfoListItem[] = executionDump.tasks.map(
+        (task, index) => ({
+          id: buildSessionItemId('progress', sessionId, idPrefix, index),
+          type: 'progress' as const,
+          content: buildProgressContent(task),
+          timestamp: new Date(task.timing?.start || Date.now()),
+          result: task.error
+            ? { error: formatError(task.error), result: null }
+            : undefined,
+        }),
+      );
+
+      setInfoList((prev) => {
+        const systemItemIndex = prev.findIndex(
+          (item) => item.id === buildSessionItemId('system', sessionId, idPrefix),
+        );
+        if (systemItemIndex === -1) {
+          return prev;
+        }
+
+        const listWithoutCurrentProgress = prev.filter(
+          (item) =>
+            !(
+              item.type === 'progress' &&
+              item.id.startsWith(
+                (idPrefix?.trim()
+                  ? `progress-${idPrefix.trim()}-${sessionId}-`
+                  : `progress-${sessionId}-`),
+              )
+            ),
+        );
+
+        return [
+          ...listWithoutCurrentProgress.slice(0, systemItemIndex + 1),
+          ...progressItems,
+          ...listWithoutCurrentProgress.slice(systemItemIndex + 1),
+        ];
+      });
+    },
+    [setInfoList],
+  );
+
+  const finalizeSubscriptionResult = useCallback(
+    (
+      sessionId: number,
+      taskResult: {
+        result?: unknown;
+        dump?: ExecutionDump | IExecutionDump | null;
+        reportHTML?: string | null;
+        error?: string | null;
+      },
+      idPrefix: string,
+    ) => {
+      setLoading(false);
+
+      setInfoList((prev) =>
+        prev.map((item) =>
+          item.id === buildSessionItemId('system', sessionId, idPrefix)
+            ? {
+                ...item,
+                content: '',
+                loading: false,
+                loadingProgressText: '',
+              }
+            : item,
+        ),
+      );
+
+      let replayInfo = null;
+      let counter = replayCounter;
+
+      if (taskResult.dump?.tasks && Array.isArray(taskResult.dump.tasks)) {
+        const groupedDump = wrapExecutionDumpForReplay(
+          taskResult.dump,
+          deviceType,
+        );
+        replayInfo = allScriptsFromDump(groupedDump);
+        setReplayCounter((c) => c + 1);
+        counter = replayCounter + 1;
+      }
+
+      const resultItem: InfoListItem = {
+        id: buildSessionItemId('result', sessionId, idPrefix),
+        type: 'result',
+        content: 'Execution result',
+        timestamp: new Date(),
+        result: {
+          result: taskResult.result ?? null,
+          dump: taskResult.dump ?? null,
+          reportHTML: taskResult.reportHTML ?? null,
+          error: taskResult.error ?? null,
+        },
+        loading: false,
+        replayScriptsInfo: replayInfo,
+        replayCounter: counter,
+        loadingProgressText: '',
+        verticalMode: verticalMode,
+        actionType: 'runYaml',
+      };
+      setInfoList((prev) => [...prev, resultItem]);
+
+      const separatorItem: InfoListItem = {
+        id: buildSessionItemId('separator', sessionId, idPrefix),
+        type: 'separator',
+        content: 'New Session',
+        timestamp: new Date(),
+      };
+      setInfoList((prev) => [...prev, separatorItem]);
+    },
+    [
+      deviceType,
+      replayCounter,
+      setInfoList,
+      setLoading,
+      setReplayCounter,
+      verticalMode,
+    ],
+  );
+
+  const tryLoadBackendRunFallback = useCallback(async () => {
+    const normalizedRunId =
+      typeof fallbackRunId === 'number' && Number.isFinite(fallbackRunId)
+        ? fallbackRunId
+        : null;
+    const normalizedBaseUrl = fallbackApiBaseUrl?.trim();
+
+    if (!normalizedRunId || !normalizedBaseUrl) {
+      return null;
+    }
+
+    try {
+      const [detailResponse, progressResponse] = await Promise.all([
+        fetch(`${normalizedBaseUrl}/api/runs/${normalizedRunId}`),
+        fetch(`${normalizedBaseUrl}/api/runs/${normalizedRunId}/progress`),
+      ]);
+
+      if (!detailResponse.ok) {
+        return null;
+      }
+
+      const detail =
+        (await detailResponse.json()) as BackendRunDetail | null;
+      const progress = progressResponse.ok
+        ? ((await progressResponse.json()) as BackendRunProgress | null)
+        : null;
+
+      if (!detail || !detail.status) {
+        return null;
+      }
+
+      if (detail.status === 'queued' || detail.status === 'running') {
+        return null;
+      }
+
+      return {
+        status: detail.status === 'success' ? 'completed' : 'failed',
+        dump: parseExecutionDumpFromBackendProgress(progress),
+        error:
+          detail.status === 'success'
+            ? null
+            : detail.error_message || `任务已结束，状态为 ${detail.status}`,
+      };
+    } catch (error) {
+      console.warn('[Playground] Failed to load backend run fallback:', error);
+      return null;
+    }
+  }, [fallbackApiBaseUrl, fallbackRunId]);
 
   // Handle form submission and execution
   const handleRun = useCallback(
@@ -175,44 +444,7 @@ export function usePlaygroundExecution(options: UsePlaygroundExecutionOptions) {
                 return;
               }
 
-              const progressItems: InfoListItem[] = executionDump.tasks.map(
-                (task, index) => ({
-                  id: `progress-${thisRunningId}-task-${index}`,
-                  type: 'progress' as const,
-                  content: buildProgressContent(task),
-                  timestamp: new Date(task.timing?.start || Date.now()),
-                  result: task.error
-                    ? { error: formatError(task.error), result: null }
-                    : undefined,
-                }),
-              );
-
-              // Replace this session's progress items with new ones
-              setInfoList((prev) => {
-                const systemItemIndex = prev.findIndex(
-                  (item) => item.id === `system-${thisRunningId}`,
-                );
-
-                if (systemItemIndex === -1) {
-                  return prev;
-                }
-
-                // Remove old progress items for this session
-                const listWithoutCurrentProgress = prev.filter(
-                  (item) =>
-                    !(
-                      item.type === 'progress' &&
-                      item.id.startsWith(`progress-${thisRunningId}-`)
-                    ),
-                );
-
-                // Insert new progress items after system item
-                return [
-                  ...listWithoutCurrentProgress.slice(0, systemItemIndex + 1),
-                  ...progressItems,
-                  ...listWithoutCurrentProgress.slice(systemItemIndex + 1),
-                ];
-              });
+              applyProgressItems(thisRunningId, executionDump, '');
             },
           );
         }
@@ -507,8 +739,9 @@ export function usePlaygroundExecution(options: UsePlaygroundExecutionOptions) {
       };
       setInfoList((prev) => [...prev, userItem]);
 
+      const subscribePrefix = 'subscribe';
       const systemItem: InfoListItem = {
-        id: `system-subscribe-${thisRunningId}`,
+        id: `system-${subscribePrefix}-${thisRunningId}`,
         type: 'system',
         content: '',
         timestamp: new Date(),
@@ -525,46 +758,30 @@ export function usePlaygroundExecution(options: UsePlaygroundExecutionOptions) {
           const progressData =
             await playgroundSDK.getTaskProgress(normalizedRequestId);
 
-          if (progressData.executionDump?.tasks?.length) {
-            const progressItems: InfoListItem[] = progressData.executionDump.tasks.map(
-              (task, index) => ({
-                id: `progress-subscribe-${thisRunningId}-task-${index}`,
-                type: 'progress' as const,
-                content: buildProgressContent(task),
-                timestamp: new Date(task.timing?.start || Date.now()),
-                result: task.error
-                  ? { error: formatError(task.error), result: null }
-                  : undefined,
-              }),
-            );
-
-            setInfoList((prev) => {
-              const systemItemIndex = prev.findIndex(
-                (item) => item.id === `system-subscribe-${thisRunningId}`,
-              );
-              if (systemItemIndex === -1) {
-                return prev;
-              }
-
-              const listWithoutCurrentProgress = prev.filter(
-                (item) =>
-                  !(
-                    item.type === 'progress' &&
-                    item.id.startsWith(`progress-subscribe-${thisRunningId}-`)
-                  ),
-              );
-
-              return [
-                ...listWithoutCurrentProgress.slice(0, systemItemIndex + 1),
-                ...progressItems,
-                ...listWithoutCurrentProgress.slice(systemItemIndex + 1),
-              ];
-            });
-          }
+          applyProgressItems(
+            thisRunningId,
+            progressData.executionDump,
+            subscribePrefix,
+          );
 
           const taskResult =
             await playgroundSDK.getTaskResult(normalizedRequestId);
           if (taskResult.status === 'not_found') {
+            const fallbackResult = await tryLoadBackendRunFallback();
+            if (fallbackResult) {
+              applyProgressItems(
+                thisRunningId,
+                fallbackResult.dump,
+                subscribePrefix,
+              );
+              finalizeSubscriptionResult(
+                thisRunningId,
+                fallbackResult,
+                subscribePrefix,
+              );
+              return;
+            }
+
             throw new Error(
               taskResult.error ||
                 `任务 ${normalizedRequestId} 不存在，可能服务重启或 requestId 来自其他实例`,
@@ -588,61 +805,16 @@ export function usePlaygroundExecution(options: UsePlaygroundExecutionOptions) {
             taskResult.status === 'completed' ||
             taskResult.status === 'failed'
           ) {
-            setLoading(false);
-
-            setInfoList((prev) =>
-              prev.map((item) =>
-                item.id === `system-subscribe-${thisRunningId}`
-                  ? {
-                      ...item,
-                      content: '',
-                      loading: false,
-                      loadingProgressText: '',
-                    }
-                  : item,
-              ),
-            );
-
-            let replayInfo = null;
-            let counter = replayCounter;
-
-            if (taskResult.dump?.tasks && Array.isArray(taskResult.dump.tasks)) {
-              const groupedDump = wrapExecutionDumpForReplay(
-                taskResult.dump,
-                deviceType,
-              );
-              replayInfo = allScriptsFromDump(groupedDump);
-              setReplayCounter((c) => c + 1);
-              counter = replayCounter + 1;
-            }
-
-            const resultItem: InfoListItem = {
-              id: `result-subscribe-${thisRunningId}`,
-              type: 'result',
-              content: 'Execution result',
-              timestamp: new Date(),
-              result: {
-                result: taskResult.result ?? null,
-                dump: taskResult.dump ?? null,
-                reportHTML: taskResult.reportHTML ?? null,
-                error: taskResult.error ?? null,
+            finalizeSubscriptionResult(
+              thisRunningId,
+              {
+                result: taskResult.result,
+                dump: taskResult.dump,
+                reportHTML: taskResult.reportHTML,
+                error: taskResult.error,
               },
-              loading: false,
-              replayScriptsInfo: replayInfo,
-              replayCounter: counter,
-              loadingProgressText: '',
-              verticalMode: verticalMode,
-              actionType: 'runYaml',
-            };
-            setInfoList((prev) => [...prev, resultItem]);
-
-            const separatorItem: InfoListItem = {
-              id: `separator-subscribe-${thisRunningId}`,
-              type: 'separator',
-              content: 'New Session',
-              timestamp: new Date(),
-            };
-            setInfoList((prev) => [...prev, separatorItem]);
+              subscribePrefix,
+            );
             return;
           }
 
@@ -652,7 +824,7 @@ export function usePlaygroundExecution(options: UsePlaygroundExecutionOptions) {
         setLoading(false);
         setInfoList((prev) =>
           prev.map((item) =>
-            item.id === `system-subscribe-${thisRunningId}`
+            item.id === `system-${subscribePrefix}-${thisRunningId}`
               ? {
                   ...item,
                   content: '',
@@ -673,6 +845,9 @@ export function usePlaygroundExecution(options: UsePlaygroundExecutionOptions) {
       setReplayCounter,
       verticalMode,
       deviceType,
+      applyProgressItems,
+      finalizeSubscriptionResult,
+      tryLoadBackendRunFallback,
     ],
   );
 

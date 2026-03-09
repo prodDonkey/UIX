@@ -15,7 +15,6 @@ class Run(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    log_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     report_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     summary_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     request_id: Mapped[str | None] = mapped_column(Text, nullable=True)

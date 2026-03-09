@@ -7,7 +7,6 @@ export type Run = {
   started_at: string | null;
   ended_at: string | null;
   duration_ms: number | null;
-  log_path: string | null;
   report_path: string | null;
   summary_path: string | null;
   request_id?: string | null;
@@ -34,6 +33,12 @@ export type RunProgress = {
   updated_at: string | null;
 };
 
+export type RunTaskProgress = {
+  executionDump?: {
+    tasks?: Array<Record<string, unknown>>;
+  } | null;
+};
+
 export const runApi = {
   async create(scriptId: number): Promise<Run> {
     const { data } = await http.post('/api/runs', { script_id: scriptId });
@@ -49,14 +54,12 @@ export const runApi = {
     const { data } = await http.get(`/api/runs/${runId}`);
     return data;
   },
-  async logs(runId: number, tailBytes = 50_000): Promise<{ content: string }> {
-    const { data } = await http.get(`/api/runs/${runId}/logs`, {
-      params: { tail_bytes: tailBytes },
-    });
-    return data;
-  },
   async progress(runId: number): Promise<RunProgress> {
     const { data } = await http.get(`/api/runs/${runId}/progress`);
+    return data;
+  },
+  async taskProgress(runId: number): Promise<RunTaskProgress> {
+    const { data } = await http.get(`/api/runs/${runId}/task-progress`);
     return data;
   },
   async cancel(runId: number): Promise<Run> {

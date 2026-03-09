@@ -26,6 +26,8 @@ const isRemoteDevice = (deviceId: string | null): boolean => {
 };
 
 export default function App() {
+  const searchParams = new URLSearchParams(window.location.search);
+  const deviceOnlyMode = searchParams.get('deviceOnly') === '1';
   // Device and connection state - now simplified since device is pre-selected
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const [connectToDevice, setConnectToDevice] = useState(false);
@@ -142,6 +144,32 @@ export default function App() {
       {contextHolder}
       <Layout className="app-container playground-container vertical-mode">
         <Content className="app-content">
+          {deviceOnlyMode ? (
+            <div className="panel-content right-panel-content">
+              <AdbDevice
+                selectedDeviceId={selectedDeviceId}
+                scrcpyPlayerRef={scrcpyPlayerRef}
+              />
+              {!usePollingMode ? (
+                <ScrcpyPlayer
+                  ref={scrcpyPlayerRef}
+                  serverUrl={serverUrl}
+                  autoConnect={connectToDevice}
+                />
+              ) : (
+                <ScreenshotViewer
+                  getScreenshot={() =>
+                    fetch('/screenshot').then((r) => r.json())
+                  }
+                  getInterfaceInfo={() =>
+                    fetch('/interface-info').then((r) => r.json())
+                  }
+                  serverOnline={true}
+                  isUserOperating={false}
+                />
+              )}
+            </div>
+          ) : (
           <PanelGroup
             autoSaveId="android-playground-layout"
             direction={isNarrowScreen ? 'vertical' : 'horizontal'}
@@ -190,6 +218,7 @@ export default function App() {
               </div>
             </Panel>
           </PanelGroup>
+          )}
         </Content>
       </Layout>
     </ConfigProvider>

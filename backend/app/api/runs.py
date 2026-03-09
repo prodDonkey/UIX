@@ -12,7 +12,6 @@ from app.models.run import Run
 from app.schemas.run import (
     RunCreateRequest,
     RunListRead,
-    RunLogsResponse,
     RunProgressRead,
     RunRead,
     RunRemarkUpdateRequest,
@@ -23,9 +22,9 @@ from app.services.run_service import (
     create_run,
     get_report_html,
     get_report_path,
+    get_run_task_progress,
     get_runtime_report_path,
     list_runs,
-    read_run_logs,
     start_run_async,
 )
 
@@ -102,16 +101,12 @@ def get_run_progress(run_id: int, db: Session = Depends(get_db)) -> RunProgressR
     )
 
 
-@router.get("/{run_id}/logs", response_model=RunLogsResponse)
-def get_run_logs(
-    run_id: int,
-    tail_bytes: int = Query(default=50_000, ge=1_000, le=500_000),
-    db: Session = Depends(get_db),
-) -> RunLogsResponse:
+@router.get("/{run_id}/task-progress")
+def get_run_task_progress_detail(run_id: int, db: Session = Depends(get_db)) -> dict:
     run = db.get(Run, run_id)
     if not run:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
-    return RunLogsResponse(content=read_run_logs(run, tail_bytes=tail_bytes))
+    return get_run_task_progress(run)
 
 
 @router.post("/{run_id}/cancel", response_model=RunRead)

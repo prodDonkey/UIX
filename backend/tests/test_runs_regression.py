@@ -77,7 +77,7 @@ def test_scripts_crud_and_validate_still_available(tmp_path: Path) -> None:
     assert deleted.status_code == 204
 
 
-def test_runs_detail_logs_report_and_progress_still_available(
+def test_runs_detail_report_and_progress_still_available(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -105,8 +105,6 @@ def test_runs_detail_logs_report_and_progress_still_available(
     assert created_run.status_code == 201
     run_id = created_run.json()["id"]
 
-    log_file = tmp_path / f"run-{run_id}.log"
-    log_file.write_text("[2026-03-04 11:00:00] progress task=打开首页 action=点击按钮\n", encoding="utf-8")
     report_file = report_root / f"run-{run_id}.html"
     report_file.write_text("<html><body>ok</body></html>", encoding="utf-8")
 
@@ -114,7 +112,6 @@ def test_runs_detail_logs_report_and_progress_still_available(
         run = db.get(Run, run_id)
         assert run is not None
         run.status = "running"
-        run.log_path = str(log_file)
         run.report_path = str(report_file)
         run.current_task = "登录流程"
         run.current_action = "点击登录"
@@ -135,10 +132,6 @@ def test_runs_detail_logs_report_and_progress_still_available(
     assert progress_payload["status"] == "running"
     assert progress_payload["current_action"] == "点击登录"
     assert "completed" in progress_payload["progress_json"]
-
-    logs = client.get(f"/api/runs/{run_id}/logs")
-    assert logs.status_code == 200
-    assert "打开首页" in logs.json()["content"]
 
     report = client.get(f"/api/runs/{run_id}/report")
     assert report.status_code == 200

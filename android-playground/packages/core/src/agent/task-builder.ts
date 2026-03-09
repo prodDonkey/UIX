@@ -154,7 +154,8 @@ export class TaskBuilder {
       type: 'Action Space',
       subType: 'Finished',
       param: null,
-      thought: plan.thought,
+      // 优先使用 AI 返回的 log，作为前端实时进度文案。
+      thought: plan.log || plan.thought,
       executor: async () => {},
     };
     context.tasks.push(taskActionFinished);
@@ -227,7 +228,8 @@ export class TaskBuilder {
     > = {
       type: 'Action Space',
       subType: planType,
-      thought: plan.thought,
+      // 优先使用 AI 返回的 log，作为前端实时进度文案。
+      thought: plan.log || plan.thought,
       param: plan.param,
       executor: async (param, taskContext) => {
         const timing = taskContext.task.timing;
@@ -375,7 +377,8 @@ export class TaskBuilder {
       type: 'Planning',
       subType: 'Locate',
       param: locateParam,
-      thought: plan.thought,
+      // 优先使用 AI 返回的 log，作为前端实时进度文案。
+      thought: plan.log || plan.thought,
       executor: async (param, taskContext) => {
         const { task } = taskContext;
         let { uiContext } = taskContext;
