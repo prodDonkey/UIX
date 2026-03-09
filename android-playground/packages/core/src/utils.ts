@@ -125,7 +125,8 @@ function sanitizeReportTemplate(template: string): string {
     return (
       normalized === 'Midscene.js' ||
       /^Midscene\\.js\\b/.test(normalized) ||
-      /^v\\d+\\.\\d+\\.\\d+\\s*\\|/.test(normalized) ||
+      /^v\\d+\\.\\d+\\.\\d+\\b/i.test(normalized) ||
+      /qwen[\\w.-]*/i.test(normalized) ||
       /insight\\//.test(normalized) ||
       /default\\//.test(normalized)
     );
@@ -133,13 +134,20 @@ function sanitizeReportTemplate(template: string): string {
 
   const shouldHideNode = (element) => {
     if (!element || !(element instanceof HTMLElement)) return false;
-    if (element.childElementCount > 12) return false;
 
     const rect = element.getBoundingClientRect();
     if (rect.top > 160) return false;
 
     const text = element.textContent || '';
-    return shouldHideText(text);
+    const hasBrandText = shouldHideText(text);
+    const hasBrandImage = !!element.querySelector('img, svg');
+    const isHeaderLike = rect.height <= 140 && rect.width >= Math.min(window.innerWidth * 0.25, 320);
+
+    if (hasBrandText && element.childElementCount <= 24) {
+      return true;
+    }
+
+    return hasBrandImage && hasBrandText && isHeaderLike;
   };
 
   const hideBranding = () => {
