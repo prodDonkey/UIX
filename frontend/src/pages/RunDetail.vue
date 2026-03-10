@@ -228,17 +228,6 @@ function normalizeLoopbackUrl(rawUrl: string): string {
 
 const androidPlaygroundEmbedUrl = computed(() => {
   const query = new URLSearchParams({ embed: '1', deviceOnly: '1' });
-  const rid = run.value?.request_id;
-  if (run.value?.id) {
-    query.set('runId', String(run.value.id));
-  }
-  query.set('sourceOrigin', window.location.origin);
-  // 只要拿到 requestId，就持续透传给 Playground。
-  // 这样历史任务、已完成任务也能回放/展示订阅到的执行过程，
-  // 避免任务一结束 iframe 立即丢失上下文，左侧面板退回欢迎页。
-  if (rid) {
-    query.set('requestId', rid);
-  }
   return normalizeLoopbackUrl(`${androidPlaygroundBaseUrl}/?${query.toString()}`);
 });
 const reportPreviewUrl = computed(() => {
@@ -314,7 +303,6 @@ async function refreshTaskLogs(silent = true) {
 async function refresh(silent = false) {
   const now = Date.now();
   const isRunning = isActiveRunStatus(run.value?.status);
-  // midsce request_id 在任务启动后才会回写，未拿到前每次轮询都拉详情，保证 iframe 及时订阅。
   const shouldFetchDetail =
     !isRunning || !silent || now - lastDetailFetchAt >= 8000 || (isRunning && !run.value?.request_id);
 

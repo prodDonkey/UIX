@@ -1,5 +1,4 @@
 import type {
-  DeviceAction,
   ExecutionDump,
   IExecutionDump,
   IGroupedActionDump,
@@ -115,12 +114,9 @@ function wrapExecutionDumpForReplay(
   };
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 export interface UsePlaygroundExecutionOptions {
   playgroundSDK: PlaygroundSDKLike | null;
   storage: StorageProvider | undefined | null;
-  actionSpace: DeviceAction<unknown>[];
   loading: boolean;
   setLoading: (loading: boolean) => void;
   setInfoList: React.Dispatch<React.SetStateAction<InfoListItem[]>>;
@@ -130,43 +126,6 @@ export interface UsePlaygroundExecutionOptions {
   currentRunningIdRef: React.MutableRefObject<number | null>;
   interruptedFlagRef: React.MutableRefObject<Record<number, boolean>>;
   deviceType?: string;
-  fallbackRunId?: number | null;
-  fallbackApiBaseUrl?: string | null;
-}
-
-interface BackendRunDetail {
-  id: number;
-  status: 'queued' | 'running' | 'success' | 'failed' | 'cancelled';
-  error_message?: string | null;
-}
-
-interface BackendRunProgress {
-  progress_json?: string | null;
-}
-
-function parseExecutionDumpFromBackendProgress(
-  progressPayload: BackendRunProgress | null,
-): IExecutionDump | ExecutionDump | null {
-  const raw = progressPayload?.progress_json;
-  if (!raw || typeof raw !== 'string') {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(raw);
-    const executionDump = parsed?.executionDump;
-    if (
-      executionDump &&
-      typeof executionDump === 'object' &&
-      Array.isArray(executionDump.tasks)
-    ) {
-      return executionDump as IExecutionDump;
-    }
-  } catch (error) {
-    console.warn('[Playground] Failed to parse backend progress_json:', error);
-  }
-
-  return null;
 }
 
 function buildSessionItemId(
@@ -195,7 +154,6 @@ export function usePlaygroundExecution(options: UsePlaygroundExecutionOptions) {
   const {
     playgroundSDK,
     storage,
-    actionSpace,
     loading,
     setLoading,
     setInfoList,
@@ -205,8 +163,6 @@ export function usePlaygroundExecution(options: UsePlaygroundExecutionOptions) {
     currentRunningIdRef,
     interruptedFlagRef,
     deviceType,
-    fallbackRunId,
-    fallbackApiBaseUrl,
   } = options;
   // Get execution options from environment config
   const { deepLocate, deepThink, screenshotIncluded, domIncluded } =
@@ -263,132 +219,6 @@ export function usePlaygroundExecution(options: UsePlaygroundExecutionOptions) {
     },
     [setInfoList],
   );
-
-  const finalizeSubscriptionResult = useCallback(
-    (
-      sessionId: number,
-      taskResult: {
-        result?: unknown;
-        dump?: ExecutionDump | IExecutionDump | null;
-        reportHTML?: string | null;
-        error?: string | null;
-      },
-      idPrefix: string,
-    ) => {
-      setLoading(false);
-
-      setInfoList((prev) =>
-        prev.map((item) =>
-          item.id === buildSessionItemId('system', sessionId, idPrefix)
-            ? {
-                ...item,
-                content: '',
-                loading: false,
-                loadingProgressText: '',
-              }
-            : item,
-        ),
-      );
-
-      let replayInfo = null;
-      let counter = replayCounter;
-
-      if (taskResult.dump?.tasks && Array.isArray(taskResult.dump.tasks)) {
-        const groupedDump = wrapExecutionDumpForReplay(
-          taskResult.dump,
-          deviceType,
-        );
-        replayInfo = allScriptsFromDump(groupedDump);
-        setReplayCounter((c) => c + 1);
-        counter = replayCounter + 1;
-      }
-
-      const resultItem: InfoListItem = {
-        id: buildSessionItemId('result', sessionId, idPrefix),
-        type: 'result',
-        content: 'Execution result',
-        timestamp: new Date(),
-        result: {
-          result: taskResult.result ?? null,
-          dump: taskResult.dump ?? null,
-          reportHTML: taskResult.reportHTML ?? null,
-          error: taskResult.error ?? null,
-        },
-        loading: false,
-        replayScriptsInfo: replayInfo,
-        replayCounter: counter,
-        loadingProgressText: '',
-        verticalMode: verticalMode,
-        actionType: 'runYaml',
-      };
-      setInfoList((prev) => [...prev, resultItem]);
-
-      const separatorItem: InfoListItem = {
-        id: buildSessionItemId('separator', sessionId, idPrefix),
-        type: 'separator',
-        content: 'New Session',
-        timestamp: new Date(),
-      };
-      setInfoList((prev) => [...prev, separatorItem]);
-    },
-    [
-      deviceType,
-      replayCounter,
-      setInfoList,
-      setLoading,
-      setReplayCounter,
-      verticalMode,
-    ],
-  );
-
-  const tryLoadBackendRunFallback = useCallback(async () => {
-    const normalizedRunId =
-      typeof fallbackRunId === 'number' && Number.isFinite(fallbackRunId)
-        ? fallbackRunId
-        : null;
-    const normalizedBaseUrl = fallbackApiBaseUrl?.trim();
-
-    if (!normalizedRunId || !normalizedBaseUrl) {
-      return null;
-    }
-
-    try {
-      const [detailResponse, progressResponse] = await Promise.all([
-        fetch(`${normalizedBaseUrl}/api/runs/${normalizedRunId}`),
-        fetch(`${normalizedBaseUrl}/api/runs/${normalizedRunId}/progress`),
-      ]);
-
-      if (!detailResponse.ok) {
-        return null;
-      }
-
-      const detail =
-        (await detailResponse.json()) as BackendRunDetail | null;
-      const progress = progressResponse.ok
-        ? ((await progressResponse.json()) as BackendRunProgress | null)
-        : null;
-
-      if (!detail || !detail.status) {
-        return null;
-      }
-
-      if (detail.status === 'queued' || detail.status === 'running') {
-        return null;
-      }
-
-      return {
-        status: detail.status === 'success' ? 'completed' : 'failed',
-        dump: parseExecutionDumpFromBackendProgress(progress),
-        error:
-          detail.status === 'success'
-            ? null
-            : detail.error_message || `任务已结束，状态为 ${detail.status}`,
-      };
-    } catch (error) {
-      console.warn('[Playground] Failed to load backend run fallback:', error);
-      return null;
-    }
-  }, [fallbackApiBaseUrl, fallbackRunId]);
 
   // Handle form submission and execution
   const handleRun = useCallback(
@@ -577,7 +407,6 @@ export function usePlaygroundExecution(options: UsePlaygroundExecutionOptions) {
     [
       playgroundSDK,
       storage,
-      actionSpace,
       setLoading,
       setInfoList,
       replayCounter,
@@ -717,140 +546,6 @@ export function usePlaygroundExecution(options: UsePlaygroundExecutionOptions) {
     deviceType,
   ]);
 
-  const handleSubscribeByRequestId = useCallback(
-    async (requestId: string): Promise<void> => {
-      const normalizedRequestId = requestId.trim();
-      if (!normalizedRequestId) {
-        throw new Error('requestId 不能为空');
-      }
-
-      if (!playgroundSDK?.getTaskResult || !playgroundSDK?.getTaskProgress) {
-        throw new Error('当前执行器不支持按 requestId 订阅');
-      }
-
-      const thisRunningId = Date.now();
-      const subscribeLabel = `订阅任务: ${normalizedRequestId}`;
-
-      const userItem: InfoListItem = {
-        id: `user-subscribe-${thisRunningId}`,
-        type: 'user',
-        content: subscribeLabel,
-        timestamp: new Date(),
-      };
-      setInfoList((prev) => [...prev, userItem]);
-
-      const subscribePrefix = 'subscribe';
-      const systemItem: InfoListItem = {
-        id: `system-${subscribePrefix}-${thisRunningId}`,
-        type: 'system',
-        content: '',
-        timestamp: new Date(),
-        loading: true,
-        loadingProgressText: '',
-      };
-      setInfoList((prev) => [...prev, systemItem]);
-      setLoading(true);
-      let emptyResultCount = 0;
-      const maxEmptyResultCount = 120; // about 60s
-
-      try {
-        while (true) {
-          const progressData =
-            await playgroundSDK.getTaskProgress(normalizedRequestId);
-
-          applyProgressItems(
-            thisRunningId,
-            progressData.executionDump,
-            subscribePrefix,
-          );
-
-          const taskResult =
-            await playgroundSDK.getTaskResult(normalizedRequestId);
-          if (taskResult.status === 'not_found') {
-            const fallbackResult = await tryLoadBackendRunFallback();
-            if (fallbackResult) {
-              applyProgressItems(
-                thisRunningId,
-                fallbackResult.dump,
-                subscribePrefix,
-              );
-              finalizeSubscriptionResult(
-                thisRunningId,
-                fallbackResult,
-                subscribePrefix,
-              );
-              return;
-            }
-
-            throw new Error(
-              taskResult.error ||
-                `任务 ${normalizedRequestId} 不存在，可能服务重启或 requestId 来自其他实例`,
-            );
-          }
-
-          if (!taskResult.status) {
-            emptyResultCount++;
-            if (emptyResultCount >= maxEmptyResultCount) {
-              setLoading(false);
-              throw new Error(
-                `未找到任务 ${normalizedRequestId}，请确认 requestId 是否正确`,
-              );
-            }
-            await sleep(500);
-            continue;
-          }
-
-          emptyResultCount = 0;
-          if (
-            taskResult.status === 'completed' ||
-            taskResult.status === 'failed'
-          ) {
-            finalizeSubscriptionResult(
-              thisRunningId,
-              {
-                result: taskResult.result,
-                dump: taskResult.dump,
-                reportHTML: taskResult.reportHTML,
-                error: taskResult.error,
-              },
-              subscribePrefix,
-            );
-            return;
-          }
-
-          await sleep(500);
-        }
-      } catch (error) {
-        setLoading(false);
-        setInfoList((prev) =>
-          prev.map((item) =>
-            item.id === `system-${subscribePrefix}-${thisRunningId}`
-              ? {
-                  ...item,
-                  content: '',
-                  loading: false,
-                  loadingProgressText: '',
-                }
-              : item,
-          ),
-        );
-        throw error;
-      }
-    },
-    [
-      playgroundSDK,
-      setInfoList,
-      setLoading,
-      replayCounter,
-      setReplayCounter,
-      verticalMode,
-      deviceType,
-      applyProgressItems,
-      finalizeSubscriptionResult,
-      tryLoadBackendRunFallback,
-    ],
-  );
-
   // Check if execution can be stopped
   const canStop =
     loading &&
@@ -861,7 +556,6 @@ export function usePlaygroundExecution(options: UsePlaygroundExecutionOptions) {
   return {
     handleRun,
     handleStop,
-    handleSubscribeByRequestId,
     canStop,
   };
 }

@@ -309,19 +309,6 @@ export interface PlaygroundSDKLike {
   onDumpUpdate?: (
     callback: (dump: string, executionDump?: ExecutionDump) => void,
   ) => void;
-  getTaskProgress?(requestId: string): Promise<{
-    executionDump?: ExecutionDump;
-  }>;
-  getTaskResult?(requestId: string): Promise<{
-    requestId?: string;
-    status?: string;
-    result?: unknown;
-    dump?: ExecutionDump | IExecutionDump | null;
-    reportHTML?: string | null;
-    error?: string | null;
-    startedAt?: number | null;
-    finishedAt?: number | null;
-  }>;
   cancelExecution?(requestId: string): Promise<{
     dump: ExecutionDump | null;
     reportHTML: string | null;

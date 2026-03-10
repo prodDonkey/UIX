@@ -7,7 +7,6 @@ import { Alert, Button, Form, List, Typography, message } from 'antd';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePlaygroundExecution } from '../../hooks/usePlaygroundExecution';
 import { usePlaygroundState } from '../../hooks/usePlaygroundState';
-import { useHistoryStore } from '../../store/history';
 import { useEnvConfig } from '../../store/store';
 import type { FormValue, UniversalPlaygroundProps } from '../../types';
 import { ContextPreview } from '../context-preview';
@@ -65,54 +64,6 @@ export function UniversalPlayground({
   const [form] = Form.useForm();
   const { config } = useEnvConfig();
   const [sdkReady, setSdkReady] = useState(false);
-  const [subscribingByRequestId, setSubscribingByRequestId] = useState(false);
-  const subscribedRequestIdRef = useRef<string | null>(null);
-  const requestIdFromUrl = useMemo(() => {
-    if (typeof window === 'undefined') {
-      return '';
-    }
-    return new URLSearchParams(window.location.search).get('requestId') || '';
-  }, []);
-  const nativeRunMode = useMemo(() => {
-    if (typeof window === 'undefined') {
-      return false;
-    }
-    return new URLSearchParams(window.location.search).get('nativeRun') === '1';
-  }, []);
-  const fallbackRunId = useMemo(() => {
-    if (typeof window === 'undefined') {
-      return null;
-    }
-    const value = new URLSearchParams(window.location.search).get('runId');
-    if (!value) {
-      return null;
-    }
-    const parsed = Number(value);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-  }, []);
-  const fallbackApiBaseUrl = useMemo(() => {
-    if (typeof window === 'undefined') {
-      return null;
-    }
-    const params = new URLSearchParams(window.location.search);
-    const apiBase = params.get('apiBase')?.trim();
-    if (apiBase) {
-      return apiBase;
-    }
-    const fromQuery = params.get('sourceOrigin')?.trim();
-    if (fromQuery) {
-      return fromQuery;
-    }
-    if (document.referrer) {
-      try {
-        return new URL(document.referrer).origin;
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  }, []);
-  const isRequestIdMode = componentConfig.serverMode && !!requestIdFromUrl;
 
   // Initialize form with default type on mount
   useEffect(() => {
@@ -198,12 +149,10 @@ export function UniversalPlayground({
   const {
     handleRun: executeAction,
     handleStop,
-    handleSubscribeByRequestId,
     canStop,
   } = usePlaygroundExecution({
     playgroundSDK,
     storage: effectiveStorage,
-    actionSpace,
     loading,
     setLoading,
     setInfoList,
@@ -213,8 +162,6 @@ export function UniversalPlayground({
     currentRunningIdRef,
     interruptedFlagRef,
     deviceType: componentConfig.deviceType,
-    fallbackRunId,
-    fallbackApiBaseUrl,
   });
 
   // Override SDK config when environment config changes
@@ -239,183 +186,6 @@ export function UniversalPlayground({
       message.error(error?.message || '执行失败');
     }
   }, [form, executeAction]);
-
-  useEffect(() => {
-    if (!componentConfig.serverMode || subscribingByRequestId || nativeRunMode) {
-      return;
-    }
-
-    let cancelled = false;
-
-    const startSubscribe = async (requestId: string) => {
-      if (!requestId || subscribedRequestIdRef.current === requestId) {
-        return;
-      }
-
-      // requestId 订阅模式下，始终先清空本地缓存，避免展示上次输入/历史会话。
-      useHistoryStore.getState().clearAllHistory();
-      form.setFieldsValue({ prompt: '', params: {} });
-      try {
-        await clearInfoList();
-      } catch (error) {
-        console.warn('Failed to clear playground cache before subscribe:', error);
-      }
-
-      subscribedRequestIdRef.current = requestId;
-      setSubscribingByRequestId(true);
-      try {
-        await handleSubscribeByRequestId(requestId);
-      } catch (error: unknown) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        message.error(`订阅失败：${errorMsg}`);
-      } finally {
-        setSubscribingByRequestId(false);
-      }
-    };
-
-    const resolveRequestIdFromRun = async (): Promise<string> => {
-      if (!fallbackRunId || !fallbackApiBaseUrl) {
-        return '';
-      }
-
-      for (let attempt = 0; attempt < 120; attempt++) {
-        if (cancelled) {
-          return '';
-        }
-
-        try {
-          const response = await fetch(
-            `${fallbackApiBaseUrl.replace(/\/+$/, '')}/api/runs/${fallbackRunId}`,
-          );
-          if (response.ok) {
-            const detail = (await response.json()) as {
-              request_id?: string | null;
-              status?: string | null;
-            };
-            const requestId = detail?.request_id?.trim();
-            if (requestId) {
-              return requestId;
-            }
-            if (
-              detail?.status &&
-              ['success', 'failed', 'cancelled'].includes(detail.status)
-            ) {
-              return '';
-            }
-          }
-        } catch (error) {
-          console.warn('Failed to resolve requestId from run detail:', error);
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      }
-
-      return '';
-    };
-
-    const run = async () => {
-      const params = new URLSearchParams(window.location.search);
-      const requestId = params.get('requestId')?.trim();
-      if (requestId) {
-        await startSubscribe(requestId);
-        return;
-      }
-
-      const resolvedRequestId = await resolveRequestIdFromRun();
-      if (!cancelled && resolvedRequestId) {
-        await startSubscribe(resolvedRequestId);
-      }
-    };
-
-    void run();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    clearInfoList,
-    componentConfig.serverMode,
-    fallbackApiBaseUrl,
-    fallbackRunId,
-    form,
-    handleSubscribeByRequestId,
-    nativeRunMode,
-    subscribingByRequestId,
-  ]);
-
-  const nativeRunStartedRef = useRef<number | null>(null);
-  useEffect(() => {
-    if (!componentConfig.serverMode || !nativeRunMode || !fallbackRunId) {
-      return;
-    }
-    if (nativeRunStartedRef.current === fallbackRunId) {
-      return;
-    }
-
-    let cancelled = false;
-
-    const runYamlFromBackendScript = async () => {
-      if (!fallbackApiBaseUrl) {
-        throw new Error('缺少 sourceOrigin，无法加载脚本内容');
-      }
-
-      const baseUrl = fallbackApiBaseUrl.replace(/\/+$/, '');
-      const runResponse = await fetch(`${baseUrl}/api/runs/${fallbackRunId}`);
-      if (!runResponse.ok) {
-        throw new Error(`加载运行详情失败: ${runResponse.status}`);
-      }
-
-      const runDetail = (await runResponse.json()) as {
-        script_id?: number | null;
-      };
-      const scriptId = runDetail?.script_id;
-      if (!scriptId) {
-        throw new Error('运行详情缺少 script_id');
-      }
-
-      const scriptResponse = await fetch(`${baseUrl}/api/scripts/${scriptId}`);
-      if (!scriptResponse.ok) {
-        throw new Error(`加载脚本内容失败: ${scriptResponse.status}`);
-      }
-
-      const scriptDetail = (await scriptResponse.json()) as {
-        content?: string | null;
-      };
-      const content = scriptDetail?.content?.trim();
-      if (!content) {
-        throw new Error('脚本内容为空');
-      }
-
-      if (cancelled) {
-        return;
-      }
-
-      nativeRunStartedRef.current = fallbackRunId;
-      form.setFieldsValue({ type: 'runYaml', prompt: content, params: {} });
-      await executeAction({
-        type: 'runYaml',
-        prompt: content,
-        params: {},
-      });
-    };
-
-    void runYamlFromBackendScript().catch((error: unknown) => {
-      nativeRunStartedRef.current = null;
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      message.error(`原生执行失败：${errorMsg}`);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    componentConfig.serverMode,
-    executeAction,
-    fallbackApiBaseUrl,
-    fallbackRunId,
-    form,
-    nativeRunMode,
-  ]);
 
   // Check if run button should be enabled
   const configAlreadySet = Object.keys(config || {}).length >= 1;
@@ -656,7 +426,6 @@ export function UniversalPlayground({
               onStop={handleStop}
               actionSpace={actionSpace}
               deviceType={deviceType}
-              disableDefaultParams={isRequestIdMode}
             />
           </div>
         )}
