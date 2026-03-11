@@ -21,8 +21,42 @@ export type SceneScriptRelation = {
   script: Script;
 };
 
+export type ScriptTask = {
+  script_id: number;
+  task_index: number;
+  task_name: string;
+  continue_on_error: boolean;
+  task_content: string;
+};
+
+export type SceneTaskItem = {
+  id: number;
+  scene_id: number;
+  script_id: number;
+  scene_script_id?: number | null;
+  task_index: number;
+  task_name_snapshot: string;
+  task_content_snapshot: string;
+  sort_order: number;
+  remark: string;
+  created_at: string;
+  script: Script;
+};
+
+export type SceneCompiledScript = {
+  scene_id: number;
+  script_count: number;
+  task_count: number;
+  yaml: string;
+};
+
+export type SceneRunCreateResult = {
+  run_id: number;
+};
+
 export type SceneDetail = Scene & {
   scripts: SceneScriptRelation[];
+  task_items: SceneTaskItem[];
 };
 
 export const sceneApi = {
@@ -66,5 +100,39 @@ export const sceneApi = {
   },
   async removeScript(sceneId: number, relationId: number): Promise<void> {
     await http.delete(`/api/scenes/${sceneId}/scripts/${relationId}`);
+  },
+  async listScriptTasks(scriptId: number): Promise<ScriptTask[]> {
+    const { data } = await http.get(`/api/scripts/${scriptId}/tasks`);
+    return data;
+  },
+  async listTaskItems(sceneId: number): Promise<SceneTaskItem[]> {
+    const { data } = await http.get(`/api/scenes/${sceneId}/task-items`);
+    return data;
+  },
+  async addTaskItem(
+    sceneId: number,
+    payload: { script_id: number; task_index: number; remark?: string },
+  ): Promise<SceneTaskItem> {
+    const { data } = await http.post(`/api/scenes/${sceneId}/task-items`, payload);
+    return data;
+  },
+  async updateTaskItem(
+    sceneId: number,
+    itemId: number,
+    payload: Partial<{ sort_order: number; remark: string }>,
+  ): Promise<SceneTaskItem> {
+    const { data } = await http.put(`/api/scenes/${sceneId}/task-items/${itemId}`, payload);
+    return data;
+  },
+  async removeTaskItem(sceneId: number, itemId: number): Promise<void> {
+    await http.delete(`/api/scenes/${sceneId}/task-items/${itemId}`);
+  },
+  async getCompiledScript(sceneId: number): Promise<SceneCompiledScript> {
+    const { data } = await http.get(`/api/scenes/${sceneId}/compiled-script`);
+    return data;
+  },
+  async runScene(sceneId: number): Promise<SceneRunCreateResult> {
+    const { data } = await http.post(`/api/scenes/${sceneId}/runs`);
+    return data;
   },
 };

@@ -17,9 +17,24 @@
     </template>
 
     <el-descriptions :column="2" border v-if="run">
-      <el-descriptions-item label="脚本">
+      <el-descriptions-item :label="run.scene_id ? '来源场景' : '脚本'">
         <div class="script-info">
-          <el-button link type="primary" class="script-link" @click="goScript(run.script_id)">
+          <el-button
+            v-if="run.scene_id"
+            link
+            type="primary"
+            class="script-link"
+            @click="goScene(run.scene_id)"
+          >
+            {{ sceneDisplayName }}
+          </el-button>
+          <el-button
+            v-else
+            link
+            type="primary"
+            class="script-link"
+            @click="goScript(run.script_id)"
+          >
             {{ scriptDisplayName }}
           </el-button>
           <el-button
@@ -119,7 +134,7 @@
   >
     <div class="history-drawer-body">
       <div class="history-drawer-summary">
-        <span>脚本 ID：{{ run?.script_id ?? '-' }}</span>
+        <span>{{ historySummaryLabel }}</span>
         <span>共 {{ sortedHistory.length }} 条</span>
       </div>
       <el-table
@@ -189,6 +204,7 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
+import { sceneApi } from '../api/scenes';
 import { runApi, type Run, type RunReport } from '../api/runs';
 import { scriptApi, type Script } from '../api/scripts';
 import { formatServerDateTime } from '../utils/datetime';
@@ -316,6 +332,19 @@ const scriptDisplayName = computed(() => {
   if (!run.value) return '-';
   return script.value?.name ? `${script.value.name} (#${run.value.script_id})` : `脚本 #${run.value.script_id}`;
 });
+const sceneDisplayName = computed(() => {
+  if (!run.value?.scene_id) return '-';
+  return run.value.scene_name_snapshot
+    ? `${run.value.scene_name_snapshot} (#${run.value.scene_id})`
+    : `场景 #${run.value.scene_id}`;
+});
+const historySummaryLabel = computed(() => {
+  if (!run.value) return '脚本 ID：-';
+  if (run.value.scene_id) {
+    return `场景 ID：${run.value.scene_id}`;
+  }
+  return `脚本 ID：${run.value.script_id ?? '-'}`;
+});
 
 async function loadScriptDetail(scriptId: number | null | undefined) {
   if (!scriptId || scriptId <= 0) {
@@ -442,13 +471,20 @@ async function refresh(silent = false) {
   if (detailResult.status === 'fulfilled') {
     const detail = detailResult.value;
     run.value = detail;
-    await loadScriptDetail(detail.script_id);
+    if (!detail.scene_id) {
+      await loadScriptDetail(detail.script_id);
+    } else {
+      script.value = null;
+      lastScriptIdLoaded = null;
+    }
     if (shouldFetchDetail) {
       lastDetailFetchAt = now;
       // 历史记录不阻断主数据渲染，失败仅告警。
       try {
-        if (detail.script_id) {
-          history.value = await runApi.list(detail.script_id);
+        if (detail.scene_id) {
+          history.value = await runApi.list({ sceneId: detail.scene_id });
+        } else if (detail.script_id) {
+          history.value = await runApi.list({ scriptId: detail.script_id });
         }
       } catch (error) {
         console.warn('[RunDetail] 获取历史执行失败', error);
@@ -524,9 +560,15 @@ async function rerun() {
   if (!run.value || isRerunning.value) return;
   isRerunning.value = true;
   try {
-    const created = await runApi.create(run.value.script_id);
-    ElMessage.success(`已创建重试任务 #${created.id}`);
-    await router.push({ name: 'run-detail', params: { id: created.id } });
+    if (run.value.scene_id) {
+      const created = await sceneApi.runScene(run.value.scene_id);
+      ElMessage.success(`已创建重试任务 #${created.run_id}`);
+      await router.push({ name: 'run-detail', params: { id: created.run_id } });
+    } else {
+      const created = await runApi.create(run.value.script_id);
+      ElMessage.success(`已创建重试任务 #${created.id}`);
+      await router.push({ name: 'run-detail', params: { id: created.id } });
+    }
     await refresh(false);
   } catch (error) {
     console.error('[RunDetail] 重新执行失败', error);
@@ -584,6 +626,10 @@ function goRun(id: number) {
 
 function goScript(scriptId: number) {
   router.push({ name: 'script-editor', params: { id: scriptId } });
+}
+
+function goScene(sceneId: number) {
+  router.push({ name: 'scene-detail', params: { id: sceneId } });
 }
 
 function hasScriptSnapshot(targetRun: Run | null | undefined) {

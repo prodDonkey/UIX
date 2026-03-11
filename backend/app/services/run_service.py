@@ -14,7 +14,10 @@ from sqlalchemy.orm import Session, load_only
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models.run import Run
+from app.models.scene import Scene
+from app.models.scene_task_item import SceneTaskItem
 from app.models.script import Script
+from app.services.scene_compiler import SceneCompileError, compile_scene_script, extract_script_env
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -37,19 +40,68 @@ def create_run(db: Session, script_id: int) -> Run:
     return run
 
 
-def list_runs(db: Session, script_id: int | None = None, limit: int = 200) -> list[Run]:
+def create_scene_run(db: Session, scene_id: int) -> Run:
+    scene = db.get(Scene, scene_id)
+    if not scene:
+        raise ValueError("Scene not found")
+
+    task_items = list(
+        db.scalars(
+            select(SceneTaskItem)
+            .where(SceneTaskItem.scene_id == scene_id)
+            .order_by(SceneTaskItem.sort_order.asc(), SceneTaskItem.id.asc())
+        ).all()
+    )
+    if not task_items:
+        raise ValueError("Scene has no task items")
+
+    first_script = db.get(Script, task_items[0].script_id)
+    if not first_script:
+        raise ValueError("Scene task source script not found")
+
+    try:
+        compiled_yaml = compile_scene_script(
+            extract_script_env(first_script.content),
+            [item.task_content_snapshot for item in task_items],
+        )
+    except SceneCompileError as exc:
+        raise ValueError(str(exc)) from exc
+
+    run = Run(
+        script_id=first_script.id,
+        scene_id=scene.id,
+        status="queued",
+        scene_name_snapshot=scene.name,
+        script_name_snapshot=scene.name,
+        script_content_snapshot=compiled_yaml,
+        script_updated_at_snapshot=scene.updated_at,
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+    return run
+
+
+def list_runs(
+    db: Session,
+    script_id: int | None = None,
+    scene_id: int | None = None,
+    limit: int = 200,
+) -> list[Run]:
     stmt = (
         select(Run)
         .options(
             load_only(
                 Run.id,
                 Run.script_id,
+                Run.scene_id,
                 Run.status,
                 Run.started_at,
                 Run.ended_at,
                 Run.duration_ms,
                 Run.request_id,
                 Run.error_message,
+                Run.scene_name_snapshot,
                 Run.remark,
                 Run.is_starred,
             )
@@ -59,6 +111,8 @@ def list_runs(db: Session, script_id: int | None = None, limit: int = 200) -> li
     )
     if script_id is not None:
         stmt = stmt.where(Run.script_id == script_id)
+    if scene_id is not None:
+        stmt = stmt.where(Run.scene_id == scene_id)
     return list(db.scalars(stmt).all())
 
 
@@ -116,7 +170,8 @@ def _execute_run(run_id: int) -> None:
                 return
 
             script = db.get(Script, run.script_id)
-            if not script:
+            script_content = (run.script_content_snapshot or "").strip()
+            if not script_content and not script:
                 run.status = "failed"
                 run.error_message = "Script not found"
                 db.commit()
@@ -132,7 +187,8 @@ def _execute_run(run_id: int) -> None:
             db.commit()
 
             started_at = run.started_at
-            script_content = script.content
+            if not script_content and script:
+                script_content = script.content
 
         run_yaml_result = _midscene_run_yaml(script_content)
         request_id = str(run_yaml_result.get("requestId") or "").strip()

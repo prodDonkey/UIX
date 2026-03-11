@@ -3,6 +3,7 @@ import { http } from './client';
 export type Run = {
   id: number;
   script_id: number;
+  scene_id?: number | null;
   status: 'queued' | 'running' | 'success' | 'failed' | 'cancelled';
   started_at: string | null;
   ended_at: string | null;
@@ -13,6 +14,7 @@ export type Run = {
   error_message: string | null;
   current_task?: string | null;
   current_action?: string | null;
+  scene_name_snapshot?: string | null;
   progress_json?: string | null;
   script_name_snapshot?: string | null;
   script_content_snapshot?: string | null;
@@ -47,9 +49,15 @@ export const runApi = {
     const { data } = await http.post('/api/runs', { script_id: scriptId });
     return data;
   },
-  async list(scriptId?: number): Promise<Run[]> {
+  async list(filters?: { scriptId?: number; sceneId?: number }): Promise<Run[]> {
     const { data } = await http.get('/api/runs', {
-      params: scriptId ? { script_id: scriptId } : undefined,
+      params:
+        filters?.scriptId || filters?.sceneId
+          ? {
+              ...(filters?.scriptId ? { script_id: filters.scriptId } : {}),
+              ...(filters?.sceneId ? { scene_id: filters.sceneId } : {}),
+            }
+          : undefined,
     });
     return data;
   },

@@ -15,6 +15,8 @@ from app.schemas.script import (
     ScriptValidateRequest,
     ScriptValidateResponse,
 )
+from app.schemas.scene import ScriptTaskRead
+from app.services.scene_compiler import dump_task_snapshot, parse_script_tasks
 from app.services.yaml_validator import validate_yaml_content
 
 router = APIRouter(prefix="/api/scripts", tags=["scripts"])
@@ -72,6 +74,26 @@ def get_script(script_id: int, db: Session = Depends(get_db)) -> ScriptRead:
             "scenes": _script_scene_references(db, script_id),
         }
     )
+
+
+@router.get("/{script_id}/tasks", response_model=list[ScriptTaskRead])
+def list_script_tasks(script_id: int, db: Session = Depends(get_db)) -> list[ScriptTaskRead]:
+    script = db.get(Script, script_id)
+    if not script:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Script not found")
+
+    return [
+        ScriptTaskRead.model_validate(
+            {
+                "script_id": script.id,
+                "task_index": item["task_index"],
+                "task_name": item["task_name"],
+                "continue_on_error": item["continue_on_error"],
+                "task_content": dump_task_snapshot(item["task"]),
+            }
+        )
+        for item in parse_script_tasks(script.content)
+    ]
 
 
 @router.post("", response_model=ScriptRead, status_code=status.HTTP_201_CREATED)

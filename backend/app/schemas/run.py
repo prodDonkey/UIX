@@ -10,6 +10,7 @@ class RunCreateRequest(BaseModel):
 class RunRead(BaseModel):
     id: int
     script_id: int
+    scene_id: int | None = None
     status: str
     started_at: datetime | None
     ended_at: datetime | None
@@ -20,6 +21,7 @@ class RunRead(BaseModel):
     error_message: str | None
     current_task: str | None = None
     current_action: str | None = None
+    scene_name_snapshot: str | None = None
     script_name_snapshot: str | None = None
     script_content_snapshot: str | None = None
     script_updated_at_snapshot: datetime | None = None
@@ -38,12 +40,14 @@ class RunListRead(BaseModel):
 
     id: int
     script_id: int
+    scene_id: int | None = None
     status: str
     started_at: datetime | None
     ended_at: datetime | None
     duration_ms: int | None
     request_id: str | None = None
     error_message: str | None
+    scene_name_snapshot: str | None = None
     remark: str | None = None
     is_starred: bool = False
 

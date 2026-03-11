@@ -10,7 +10,7 @@ from app.api.runs import router as runs_router
 from app.api.scripts import router as scripts_router
 from app.core.config import settings
 from app.core.database import Base, engine
-from app.models import run, scene, scene_script, script, script_version  # noqa: F401
+from app.models import run, scene, scene_script, scene_task_item, script, script_version  # noqa: F401
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -33,6 +33,8 @@ def _ensure_runs_columns() -> None:
         return
 
     expected_columns = {
+        "scene_id": "INTEGER",
+        "scene_name_snapshot": "VARCHAR(128)",
         "current_task": "TEXT",
         "current_action": "TEXT",
         "progress_json": "TEXT",

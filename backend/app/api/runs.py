@@ -61,10 +61,11 @@ def _allowed_report_roots() -> list[Path]:
 @router.get("", response_model=list[RunListRead])
 def get_runs(
     script_id: int | None = Query(default=None, gt=0),
+    scene_id: int | None = Query(default=None, gt=0),
     limit: int = Query(default=200, ge=1, le=1000),
     db: Session = Depends(get_db),
 ) -> list[Run]:
-    return list_runs(db, script_id=script_id, limit=limit)
+    return list_runs(db, script_id=script_id, scene_id=scene_id, limit=limit)
 
 
 @router.post("", response_model=RunRead, status_code=status.HTTP_201_CREATED)
