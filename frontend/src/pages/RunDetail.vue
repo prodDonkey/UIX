@@ -17,7 +17,11 @@
     </template>
 
     <el-descriptions :column="2" border v-if="run">
-      <el-descriptions-item label="脚本ID">{{ run.script_id }}</el-descriptions-item>
+      <el-descriptions-item label="脚本">
+        <el-button link type="primary" class="script-link" @click="goScript(run.script_id)">
+          {{ scriptDisplayName }}
+        </el-button>
+      </el-descriptions-item>
       <el-descriptions-item label="requestId">{{ run.request_id || '-' }}</el-descriptions-item>
       <el-descriptions-item label="状态">{{ formatRunStatus(run.status) }}</el-descriptions-item>
       <el-descriptions-item label="开始时间">{{ formatDateTime(run.started_at) }}</el-descriptions-item>
@@ -146,6 +150,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import { runApi, type Run, type RunReport } from '../api/runs';
+import { scriptApi, type Script } from '../api/scripts';
 import { formatServerDateTime } from '../utils/datetime';
 
 const route = useRoute();
@@ -153,6 +158,7 @@ const router = useRouter();
 const runId = computed(() => Number(route.params.id));
 
 const run = ref<Run | null>(null);
+const script = ref<Script | null>(null);
 const history = ref<Run[]>([]);
 const reportInfo = ref<RunReport | null>(null);
 const isCancelling = ref(false);
@@ -165,6 +171,7 @@ const taskLogPanelWidth = ref(360);
 let timer: number | null = null;
 let stopped = false;
 let lastDetailFetchAt = 0;
+let lastScriptIdLoaded: number | null = null;
 let stopResizeListeners: (() => void) | null = null;
 
 const statusTagType = computed(() => {
@@ -256,6 +263,29 @@ const sortedHistory = computed(() =>
     return b.id - a.id;
   }),
 );
+const scriptDisplayName = computed(() => {
+  if (!run.value) return '-';
+  return script.value?.name ? `${script.value.name} (#${run.value.script_id})` : `脚本 #${run.value.script_id}`;
+});
+
+async function loadScriptDetail(scriptId: number | null | undefined) {
+  if (!scriptId || scriptId <= 0) {
+    script.value = null;
+    lastScriptIdLoaded = null;
+    return;
+  }
+  if (lastScriptIdLoaded === scriptId && script.value?.id === scriptId) {
+    return;
+  }
+  try {
+    script.value = await scriptApi.detail(scriptId);
+    lastScriptIdLoaded = scriptId;
+  } catch (error) {
+    console.warn('[RunDetail] 获取脚本信息失败', error);
+    script.value = null;
+    lastScriptIdLoaded = null;
+  }
+}
 
 function stringifyTaskParam(value: unknown): string {
   if (!value) return '';
@@ -362,6 +392,7 @@ async function refresh(silent = false) {
   if (detailResult.status === 'fulfilled') {
     const detail = detailResult.value;
     run.value = detail;
+    await loadScriptDetail(detail.script_id);
     if (shouldFetchDetail) {
       lastDetailFetchAt = now;
       // 历史记录不阻断主数据渲染，失败仅告警。
@@ -501,6 +532,10 @@ function goRun(id: number) {
   router.push({ name: 'run-detail', params: { id } });
 }
 
+function goScript(scriptId: number) {
+  router.push({ name: 'script-editor', params: { id: scriptId } });
+}
+
 function historyRowClassName({ row }: { row: Run }) {
   return row.id === run.value?.id ? 'history-row-current' : '';
 }
@@ -573,6 +608,8 @@ watch(
     lastDetailFetchAt = 0;
     historyDrawerVisible.value = false;
     reportInfo.value = null;
+    script.value = null;
+    lastScriptIdLoaded = null;
     await refresh(false);
   },
 );
@@ -618,6 +655,11 @@ onBeforeUnmount(() => {
 }
 .error {
   margin-top: 10px;
+}
+.script-link {
+  padding: 0;
+  height: auto;
+  font-weight: 500;
 }
 .report-actions {
   margin-bottom: 8px;

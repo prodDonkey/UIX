@@ -54,6 +54,7 @@ android:
   deviceId: ""
 
 agent:
+  # 最大重规划次数：当 aiAction 多次尝试后仍未完成目标时，超过该次数会报错退出
   replanningCycleLimit: 30
 
 tasks:
