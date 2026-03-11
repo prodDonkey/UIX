@@ -18,9 +18,20 @@
 
     <el-descriptions :column="2" border v-if="run">
       <el-descriptions-item label="脚本">
-        <el-button link type="primary" class="script-link" @click="goScript(run.script_id)">
-          {{ scriptDisplayName }}
-        </el-button>
+        <div class="script-info">
+          <el-button link type="primary" class="script-link" @click="goScript(run.script_id)">
+            {{ scriptDisplayName }}
+          </el-button>
+          <el-button
+            v-if="hasScriptSnapshot(run)"
+            link
+            type="primary"
+            class="snapshot-link"
+            @click="openScriptSnapshot(run)"
+          >
+            查看执行脚本
+          </el-button>
+        </div>
       </el-descriptions-item>
       <el-descriptions-item label="requestId">{{ run.request_id || '-' }}</el-descriptions-item>
       <el-descriptions-item label="状态">{{ formatRunStatus(run.status) }}</el-descriptions-item>
@@ -137,15 +148,39 @@
             {{ row.remark || '-' }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="118" fixed="right">
+        <el-table-column label="操作" width="156" fixed="right">
           <template #default="{ row }">
             <el-button size="small" link @click="goRun(row.id)">查看</el-button>
+            <el-button
+              size="small"
+              link
+              type="primary"
+              @click="openScriptSnapshot(row)"
+            >
+              脚本
+            </el-button>
             <el-button size="small" link type="primary" @click="editRemark(row)">备注</el-button>
           </template>
         </el-table-column>
       </el-table>
     </div>
   </el-drawer>
+
+  <el-dialog
+    v-model="scriptSnapshotVisible"
+    width="min(960px, 92vw)"
+    destroy-on-close
+    class="script-snapshot-dialog"
+  >
+    <template #header>
+      <div class="snapshot-header">
+        <strong>{{ scriptSnapshotTitle }}</strong>
+        <span class="snapshot-meta">{{ scriptSnapshotMeta }}</span>
+      </div>
+    </template>
+    <el-empty v-if="!scriptSnapshotContent" description="该运行记录暂无脚本快照" />
+    <pre v-else class="snapshot-content"><code>{{ scriptSnapshotContent }}</code></pre>
+  </el-dialog>
 </template>
 
 <script setup lang="ts">
@@ -169,6 +204,10 @@ const reportInfo = ref<RunReport | null>(null);
 const isCancelling = ref(false);
 const isRerunning = ref(false);
 const historyDrawerVisible = ref(false);
+const scriptSnapshotVisible = ref(false);
+const scriptSnapshotTitle = ref('执行脚本快照');
+const scriptSnapshotMeta = ref('');
+const scriptSnapshotContent = ref('');
 const taskLogs = ref<Array<{ key: string; title: string; status: string; rawStatus: string; content: string }>>([]);
 const taskLogLayoutRef = ref<HTMLElement | null>(null);
 const taskLogListRef = ref<HTMLElement | null>(null);
@@ -547,6 +586,46 @@ function goScript(scriptId: number) {
   router.push({ name: 'script-editor', params: { id: scriptId } });
 }
 
+function hasScriptSnapshot(targetRun: Run | null | undefined) {
+  return !!targetRun?.script_content_snapshot?.trim();
+}
+
+function buildScriptSnapshotTitle(targetRun: Run) {
+  const snapshotName = targetRun.script_name_snapshot?.trim();
+  return snapshotName ? `${snapshotName} 的执行快照` : `Run #${targetRun.id} 的执行快照`;
+}
+
+async function openScriptSnapshot(targetRun: Run) {
+  let snapshotRun = targetRun;
+  if (!hasScriptSnapshot(snapshotRun)) {
+    try {
+      snapshotRun = await runApi.detail(targetRun.id);
+      const row = history.value.find((item) => item.id === targetRun.id);
+      if (row) {
+        row.script_name_snapshot = snapshotRun.script_name_snapshot ?? null;
+        row.script_content_snapshot = snapshotRun.script_content_snapshot ?? null;
+        row.script_updated_at_snapshot = snapshotRun.script_updated_at_snapshot ?? null;
+      }
+    } catch (error) {
+      console.error('[RunDetail] 获取脚本快照失败', error);
+      ElMessage.error('获取脚本快照失败，请稍后重试');
+      return;
+    }
+  }
+
+  scriptSnapshotTitle.value = buildScriptSnapshotTitle(snapshotRun);
+  scriptSnapshotMeta.value = snapshotRun.script_updated_at_snapshot
+    ? `脚本快照时间：${formatDateTime(snapshotRun.script_updated_at_snapshot)}`
+    : `Run #${snapshotRun.id}`;
+  scriptSnapshotContent.value = snapshotRun.script_content_snapshot?.trim() || '';
+
+  if (!scriptSnapshotContent.value) {
+    ElMessage.warning('该运行记录暂无脚本快照');
+  }
+
+  scriptSnapshotVisible.value = true;
+}
+
 function historyRowClassName({ row }: { row: Run }) {
   return row.id === run.value?.id ? 'history-row-current' : '';
 }
@@ -684,6 +763,16 @@ onBeforeUnmount(() => {
   height: auto;
   font-weight: 500;
 }
+.script-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.snapshot-link {
+  padding: 0;
+  height: auto;
+}
 .report-actions {
   margin-bottom: 8px;
   display: flex;
@@ -809,6 +898,28 @@ onBeforeUnmount(() => {
 .history-drawer-body :deep(.el-table .history-row-current) {
   --el-table-tr-bg-color: #eff6ff;
 }
+.snapshot-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.snapshot-meta {
+  font-size: 12px;
+  color: #6b7280;
+}
+.snapshot-content {
+  margin: 0;
+  max-height: 70vh;
+  overflow: auto;
+  padding: 16px;
+  border-radius: 12px;
+  background: #0f172a;
+  color: #e2e8f0;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 @media (max-width: 768px) {
   .header {
     flex-direction: column;
@@ -834,6 +945,9 @@ onBeforeUnmount(() => {
   .device-actions {
     width: 100%;
     justify-content: space-between;
+  }
+  .script-info {
+    align-items: flex-start;
   }
   .device-frame-shell {
     height: 540px;

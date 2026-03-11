@@ -22,5 +22,8 @@ class Run(Base):
     current_task: Mapped[str | None] = mapped_column(Text, nullable=True)
     current_action: Mapped[str | None] = mapped_column(Text, nullable=True)
     progress_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    script_name_snapshot: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    script_content_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
+    script_updated_at_snapshot: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     remark: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_starred: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

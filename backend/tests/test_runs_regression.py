@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import httpx
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -13,6 +14,8 @@ from app.api.scripts import router as scripts_router
 from app.core.config import settings
 from app.core.database import Base, get_db
 from app.models.run import Run
+from app.models.script import Script
+from app.services import run_service
 
 
 def _build_test_client(tmp_path: Path) -> tuple[TestClient, sessionmaker[Session]]:
@@ -125,6 +128,8 @@ def test_runs_detail_report_and_progress_still_available(
     detail = client.get(f"/api/runs/{run_id}")
     assert detail.status_code == 200
     assert detail.json()["current_task"] == "登录流程"
+    assert detail.json()["script_name_snapshot"] == "运行脚本"
+    assert "打开首页" in detail.json()["script_content_snapshot"]
 
     progress = client.get(f"/api/runs/{run_id}/progress")
     assert progress.status_code == 200
@@ -145,6 +150,42 @@ def test_runs_detail_report_and_progress_still_available(
     preview_head = client.head(f"/api/runs/{run_id}/report/file")
     assert preview_head.status_code == 200
     assert "text/html" in preview_head.headers.get("content-type", "")
+
+
+def test_create_run_persists_script_snapshot(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, session_local = _build_test_client(tmp_path)
+    monkeypatch.setattr("app.api.runs.start_run_async", lambda run_id: None)
+
+    created_script = client.post(
+        "/api/scripts",
+        json={
+            "name": "快照脚本",
+            "content": "android:\n  deviceId: ''\ntasks:\n  - name: 执行快照\n    flow:\n      - aiAction: 打开设置\n",
+            "source_type": "manual",
+        },
+    )
+    assert created_script.status_code == 201
+    script_payload = created_script.json()
+
+    created_run = client.post("/api/runs", json={"script_id": script_payload["id"]})
+    assert created_run.status_code == 201
+    run_id = created_run.json()["id"]
+
+    with session_local() as db:
+        run = db.get(Run, run_id)
+        assert run is not None
+        assert run.script_name_snapshot == "快照脚本"
+        assert "打开设置" in (run.script_content_snapshot or "")
+        assert run.script_updated_at_snapshot is not None
+
+    detail = client.get(f"/api/runs/{run_id}")
+    assert detail.status_code == 200
+    payload = detail.json()
+    assert payload["script_name_snapshot"] == "快照脚本"
+    assert "打开设置" in payload["script_content_snapshot"]
 
 
 def test_runs_report_can_fallback_to_midscene_report_html(
@@ -245,3 +286,70 @@ def test_runs_report_prefers_runtime_report_path_when_midscene_html_is_placehold
     preview = client.get(f"/api/runs/{run_id}/report/file")
     assert preview.status_code == 200
     assert "runtime-report" in preview.text
+
+
+def test_run_execute_retries_midscene_poll_timeout_without_marking_failed(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_file = tmp_path / "run-service.db"
+    engine = create_engine(f"sqlite:///{db_file}", connect_args={"check_same_thread": False})
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    with testing_session_local() as db:
+        script = Script(name="轮询超时脚本", content="tasks: []", source_type="manual")
+        db.add(script)
+        db.commit()
+        db.refresh(script)
+
+        run = Run(script_id=script.id, status="queued")
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        run_id = run.id
+
+    monkeypatch.setattr(run_service, "SessionLocal", testing_session_local)
+    monkeypatch.setattr(settings, "midscene_status_poll_interval_ms", 1)
+    monkeypatch.setattr(run_service.time, "sleep", lambda _: None)
+    monkeypatch.setattr(
+        run_service,
+        "_midscene_run_yaml",
+        lambda _: {"requestId": "req-timeout-retry"},
+    )
+    monkeypatch.setattr(
+        run_service,
+        "_midscene_task_progress",
+        lambda _: {
+            "status": "running",
+            "currentTask": "质检流程",
+            "currentAction": "点击无以上问题",
+            "tasks": [],
+        },
+    )
+
+    result_calls = {"count": 0}
+
+    def fake_task_result(_: str) -> dict:
+        result_calls["count"] += 1
+        if result_calls["count"] == 1:
+            raise httpx.ReadTimeout("poll timeout")
+        return {
+            "status": "completed",
+            "reportPath": "/tmp/report.html",
+        }
+
+    monkeypatch.setattr(run_service, "_midscene_task_result", fake_task_result)
+
+    run_service._execute_run(run_id)
+
+    with testing_session_local() as db:
+        run = db.get(Run, run_id)
+        assert run is not None
+        assert run.status == "success"
+        assert run.error_message is None
+        assert run.request_id == "req-timeout-retry"
+        assert run.report_path == "/tmp/report.html"
+        assert run.current_task == "质检流程"
+        assert run.current_action == "点击无以上问题"
+        assert result_calls["count"] == 2

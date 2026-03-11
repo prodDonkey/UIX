@@ -20,6 +20,9 @@ class RunRead(BaseModel):
     error_message: str | None
     current_task: str | None = None
     current_action: str | None = None
+    script_name_snapshot: str | None = None
+    script_content_snapshot: str | None = None
+    script_updated_at_snapshot: datetime | None = None
     remark: str | None = None
     is_starred: bool = False
 

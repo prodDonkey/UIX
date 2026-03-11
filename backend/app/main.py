@@ -37,6 +37,9 @@ def _ensure_runs_columns() -> None:
         "current_action": "TEXT",
         "progress_json": "TEXT",
         "request_id": "TEXT",
+        "script_name_snapshot": "VARCHAR(128)",
+        "script_content_snapshot": "TEXT",
+        "script_updated_at_snapshot": "DATETIME",
         "remark": "TEXT",
         "is_starred": "BOOLEAN NOT NULL DEFAULT 0",
     }

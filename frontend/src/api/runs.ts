@@ -14,6 +14,9 @@ export type Run = {
   current_task?: string | null;
   current_action?: string | null;
   progress_json?: string | null;
+  script_name_snapshot?: string | null;
+  script_content_snapshot?: string | null;
+  script_updated_at_snapshot?: string | null;
   remark?: string | null;
   is_starred?: boolean;
 };

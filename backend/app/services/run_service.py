@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import json
+import logging
 from pathlib import Path
 import threading
 import time
@@ -15,12 +16,21 @@ from app.core.database import SessionLocal
 from app.models.run import Run
 from app.models.script import Script
 
+logger = logging.getLogger("uvicorn.error")
+
 
 def create_run(db: Session, script_id: int) -> Run:
-    if not db.get(Script, script_id):
+    script = db.get(Script, script_id)
+    if not script:
         raise ValueError("Script not found")
 
-    run = Run(script_id=script_id, status="queued")
+    run = Run(
+        script_id=script_id,
+        status="queued",
+        script_name_snapshot=script.name,
+        script_content_snapshot=script.content,
+        script_updated_at_snapshot=script.updated_at,
+    )
     db.add(run)
     db.commit()
     db.refresh(run)
@@ -148,7 +158,22 @@ def _execute_run(run_id: int) -> None:
             try:
                 progress = _midscene_task_progress(request_id)
                 last_progress = progress
+            except httpx.TimeoutException as exc:
+                # 轮询超时不立即判失败，保留 run 为 running，等待下一轮继续收敛。
+                logger.warning(
+                    "Midscene task-progress轮询超时，继续重试 runId=%s requestId=%s error=%s",
+                    run_id,
+                    request_id,
+                    exc,
+                )
+                progress = {}
             except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Midscene task-progress轮询失败，继续重试 runId=%s requestId=%s error=%s",
+                    run_id,
+                    request_id,
+                    exc,
+                )
                 progress = {}
 
             compact_progress = _compact_midscene_progress(progress, run_id)
@@ -163,7 +188,17 @@ def _execute_run(run_id: int) -> None:
                 run.progress_json = json.dumps(compact_progress, ensure_ascii=False)
                 db.commit()
 
-            result = _midscene_task_result(request_id)
+            try:
+                result = _midscene_task_result(request_id)
+            except httpx.TimeoutException as exc:
+                logger.warning(
+                    "Midscene task-result轮询超时，继续重试 runId=%s requestId=%s error=%s",
+                    run_id,
+                    request_id,
+                    exc,
+                )
+                time.sleep(poll_interval_sec)
+                continue
             midscene_status = str(result.get("status") or "").strip().lower()
             run_status = _map_midscene_status_to_run(midscene_status)
             if run_status in ("success", "failed", "cancelled"):
