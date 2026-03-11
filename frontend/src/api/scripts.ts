@@ -9,6 +9,8 @@ export type Script = {
   source_type: string;
   created_at: string;
   updated_at: string;
+  scene_count?: number;
+  scenes?: Array<{ id: number; name: string }>;
 };
 
 export type ValidateResult = {

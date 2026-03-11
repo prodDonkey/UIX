@@ -3,11 +3,14 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.models.scene import Scene
+from app.models.scene_script import SceneScript
 from app.models.script import Script
 from app.models.script_version import ScriptVersion
 from app.schemas.script import (
     ScriptCreate,
     ScriptRead,
+    ScriptSceneReference,
     ScriptUpdate,
     ScriptValidateRequest,
     ScriptValidateResponse,
@@ -17,22 +20,62 @@ from app.services.yaml_validator import validate_yaml_content
 router = APIRouter(prefix="/api/scripts", tags=["scripts"])
 
 
+def _script_scene_references(db: Session, script_id: int) -> list[ScriptSceneReference]:
+    scenes = list(
+        db.scalars(
+            select(Scene).join(SceneScript, SceneScript.scene_id == Scene.id).where(SceneScript.script_id == script_id)
+        ).all()
+    )
+    return [ScriptSceneReference(id=scene.id, name=scene.name) for scene in scenes]
+
+
 @router.get("", response_model=list[ScriptRead])
-def list_scripts(db: Session = Depends(get_db)) -> list[Script]:
-    stmt = select(Script).order_by(Script.updated_at.desc())
-    return list(db.scalars(stmt).all())
+def list_scripts(db: Session = Depends(get_db)) -> list[ScriptRead]:
+    stmt = (
+        select(Script, func.count(SceneScript.id).label("scene_count"))
+        .outerjoin(SceneScript, SceneScript.script_id == Script.id)
+        .group_by(Script.id)
+        .order_by(Script.updated_at.desc())
+    )
+    return [
+        ScriptRead.model_validate(
+            {
+                "id": script.id,
+                "name": script.name,
+                "content": script.content,
+                "source_type": script.source_type,
+                "created_at": script.created_at,
+                "updated_at": script.updated_at,
+                "scene_count": scene_count,
+                "scenes": [],
+            }
+        )
+        for script, scene_count in db.execute(stmt).all()
+    ]
 
 
 @router.get("/{script_id}", response_model=ScriptRead)
-def get_script(script_id: int, db: Session = Depends(get_db)) -> Script:
+def get_script(script_id: int, db: Session = Depends(get_db)) -> ScriptRead:
     script = db.get(Script, script_id)
     if not script:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Script not found")
-    return script
+    scene_count = db.scalar(select(func.count(SceneScript.id)).where(SceneScript.script_id == script_id)) or 0
+    return ScriptRead.model_validate(
+        {
+            "id": script.id,
+            "name": script.name,
+            "content": script.content,
+            "source_type": script.source_type,
+            "created_at": script.created_at,
+            "updated_at": script.updated_at,
+            "scene_count": scene_count,
+            "scenes": _script_scene_references(db, script_id),
+        }
+    )
 
 
 @router.post("", response_model=ScriptRead, status_code=status.HTTP_201_CREATED)
-def create_script(payload: ScriptCreate, db: Session = Depends(get_db)) -> Script:
+def create_script(payload: ScriptCreate, db: Session = Depends(get_db)) -> ScriptRead:
     script = Script(name=payload.name, content=payload.content, source_type=payload.source_type)
     db.add(script)
     db.flush()
@@ -42,11 +85,22 @@ def create_script(payload: ScriptCreate, db: Session = Depends(get_db)) -> Scrip
 
     db.commit()
     db.refresh(script)
-    return script
+    return ScriptRead.model_validate(
+        {
+            "id": script.id,
+            "name": script.name,
+            "content": script.content,
+            "source_type": script.source_type,
+            "created_at": script.created_at,
+            "updated_at": script.updated_at,
+            "scene_count": 0,
+            "scenes": [],
+        }
+    )
 
 
 @router.put("/{script_id}", response_model=ScriptRead)
-def update_script(script_id: int, payload: ScriptUpdate, db: Session = Depends(get_db)) -> Script:
+def update_script(script_id: int, payload: ScriptUpdate, db: Session = Depends(get_db)) -> ScriptRead:
     script = db.get(Script, script_id)
     if not script:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Script not found")
@@ -70,7 +124,19 @@ def update_script(script_id: int, payload: ScriptUpdate, db: Session = Depends(g
 
     db.commit()
     db.refresh(script)
-    return script
+    scene_count = db.scalar(select(func.count(SceneScript.id)).where(SceneScript.script_id == script_id)) or 0
+    return ScriptRead.model_validate(
+        {
+            "id": script.id,
+            "name": script.name,
+            "content": script.content,
+            "source_type": script.source_type,
+            "created_at": script.created_at,
+            "updated_at": script.updated_at,
+            "scene_count": scene_count,
+            "scenes": _script_scene_references(db, script_id),
+        }
+    )
 
 
 @router.delete("/{script_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -83,7 +149,7 @@ def delete_script(script_id: int, db: Session = Depends(get_db)) -> None:
 
 
 @router.post("/{script_id}/copy", response_model=ScriptRead, status_code=status.HTTP_201_CREATED)
-def copy_script(script_id: int, db: Session = Depends(get_db)) -> Script:
+def copy_script(script_id: int, db: Session = Depends(get_db)) -> ScriptRead:
     origin = db.get(Script, script_id)
     if not origin:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Script not found")
@@ -99,7 +165,18 @@ def copy_script(script_id: int, db: Session = Depends(get_db)) -> Script:
     db.add(ScriptVersion(script_id=copied.id, version_no=1, content=copied.content))
     db.commit()
     db.refresh(copied)
-    return copied
+    return ScriptRead.model_validate(
+        {
+            "id": copied.id,
+            "name": copied.name,
+            "content": copied.content,
+            "source_type": copied.source_type,
+            "created_at": copied.created_at,
+            "updated_at": copied.updated_at,
+            "scene_count": 0,
+            "scenes": [],
+        }
+    )
 
 
 @router.post("/{script_id}/validate", response_model=ScriptValidateResponse)

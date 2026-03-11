@@ -15,6 +15,11 @@
           </el-button>
         </template>
       </el-table-column>
+      <el-table-column label="所属场景数" width="110">
+        <template #default="{ row }">
+          {{ row.scene_count ?? 0 }}
+        </template>
+      </el-table-column>
       <el-table-column label="来源" width="120">
         <template #default="{ row }">
           {{ formatSourceType(row.source_type) }}
@@ -44,7 +49,29 @@ import { formatServerDateTime } from '../utils/datetime';
 const store = useScriptStore();
 const router = useRouter();
 
-const defaultTemplate = `android:\n  deviceId: ""\n\ntasks:\n  - name: demo\n    flow:\n      - aiAction: open Settings app\n`;
+const defaultTemplate = `# 示例脚本：进入工作台并完成签到
+android:
+  deviceId: ""
+
+agent:
+  replanningCycleLimit: 30
+
+tasks:
+  - name: 打开工作台
+    flow:
+      - aiAction: 打开目标应用并进入“工作台”页面
+      - aiAssert: 当前页面出现“工作台”标题
+
+  - name: 进入签到页
+    flow:
+      - aiAction: 点击“签到”入口
+      - aiAssert: 当前页面出现“立即签到”按钮
+
+  - name: 完成签到
+    flow:
+      - aiAction: 点击“立即签到”按钮
+      - aiAssert: 页面出现“签到成功”
+`;
 
 onMounted(async () => {
   await store.fetchScripts();
@@ -81,7 +108,13 @@ async function copyScript(id: number) {
 }
 
 async function deleteScript(id: number) {
-  await ElMessageBox.confirm('确认删除该脚本吗？', '提示', { type: 'warning' });
+  const target = store.scripts.find((item) => item.id === id);
+  const sceneCount = target?.scene_count ?? 0;
+  const message =
+    sceneCount > 0
+      ? `该脚本已被 ${sceneCount} 个场景引用，删除后会同步移除关联关系。确认继续吗？`
+      : '确认删除该脚本吗？';
+  await ElMessageBox.confirm(message, '提示', { type: 'warning' });
   await scriptApi.remove(id);
   ElMessage.success('删除成功');
   await store.fetchScripts();

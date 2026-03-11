@@ -4,12 +4,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
 
+from app.api.scenes import router as scenes_router
 from app.api.generate import router as generate_router
 from app.api.runs import router as runs_router
 from app.api.scripts import router as scripts_router
 from app.core.config import settings
 from app.core.database import Base, engine
-from app.models import run, script, script_version  # noqa: F401
+from app.models import run, scene, scene_script, script, script_version  # noqa: F401
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -74,5 +75,6 @@ def health() -> dict[str, str]:
 
 
 app.include_router(scripts_router)
+app.include_router(scenes_router)
 app.include_router(generate_router)
 app.include_router(runs_router)

@@ -26,6 +26,20 @@
           <el-option label="AI生成" value="ai" />
         </el-select>
       </el-form-item>
+      <el-form-item label="被场景引用">
+        <div class="scene-reference-panel">
+          <span v-if="sceneReferences.length === 0" class="scene-reference-empty">当前未被任何场景引用</span>
+          <el-tag
+            v-for="scene in sceneReferences"
+            :key="scene.id"
+            class="scene-tag"
+            effect="plain"
+            @click="goScene(scene.id)"
+          >
+            {{ scene.name }}
+          </el-tag>
+        </div>
+      </el-form-item>
     </el-form>
 
     <YamlEditor v-model="content" />
@@ -63,6 +77,7 @@ const scriptId = computed(() => Number(route.params.id));
 const name = ref('');
 const sourceType = ref('manual');
 const content = ref('');
+const sceneReferences = ref<Array<{ id: number; name: string }>>([]);
 const validateMessage = ref('');
 const validateOk = ref(false);
 const running = ref(false);
@@ -78,6 +93,7 @@ onMounted(async () => {
   name.value = detail.name;
   sourceType.value = detail.source_type;
   content.value = detail.content;
+  sceneReferences.value = detail.scenes ?? [];
 });
 
 async function save() {
@@ -120,6 +136,10 @@ async function goBack() {
   await router.replace({ name: 'scripts-list' });
 }
 
+function goScene(sceneId: number) {
+  router.push({ name: 'scene-detail', params: { id: sceneId } });
+}
+
 function onYamlGenerated(yaml: string) {
   content.value = yaml;
   sourceType.value = 'ai';
@@ -139,6 +159,17 @@ function onYamlGenerated(yaml: string) {
 .meta-form {
   max-width: 680px;
   margin-bottom: 12px;
+}
+.scene-reference-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.scene-reference-empty {
+  color: #6b7280;
+}
+.scene-tag {
+  cursor: pointer;
 }
 .alert {
   margin-top: 12px;

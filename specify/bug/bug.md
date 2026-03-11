@@ -49,3 +49,58 @@
 1. 后端运行前校验：发现高风险组合时给出 warning。
 2. 运行器容错：`Locate` 收到 `Type` 动作时尝试降级处理（可选）。
 3. 增加回归样例：覆盖抖音/小红书搜索输入链路。
+
+---
+
+# Issue: 运行详情页的 timeout 错误缺少分类，无法快速判断根因
+
+## 概要
+- 时间：2026-03-11
+- 场景：查看运行详情页，例如 `http://localhost:5173/run/173`
+- 现状：页面只展示原始 `error_message`
+- 问题：当报错为 `timeout` 时，用户无法判断是哪一层超时
+
+## 现象
+- 在运行详情页中，错误区域直接显示后端写入的 `run.error_message`
+- 当报错包含 `timeout` 时，无法从 UI 上区分以下情况：
+  - Midscene HTTP 接口调用超时
+  - `aiWaitFor` / `waitFor` 等页面状态等待超时
+  - 其它 AI 执行链路的超时
+
+## 影响
+- 用户看到“超时”后无法快速定位问题
+- 排查需要进入日志或后端代码，门槛较高
+- 容易误判为前端页面超时或系统整体不可用
+
+## 已知代码背景
+- 运行详情页当前直接显示：
+  - `frontend/src/pages/RunDetail.vue`
+- 后端调用 Midscene 服务超时配置：
+  - `backend/app/core/config.py`
+  - `backend/app/services/run_service.py`
+- Midscene `aiWaitFor` 默认等待：
+  - `android-playground/packages/core/src/agent/agent.ts`
+
+## 期望行为
+- 在运行详情页中，把 timeout 类错误细分成更明确的中文提示，例如：
+  - `Midscene 服务调用超时`
+  - `页面等待超时：未出现目标元素或页面状态`
+  - `AI 执行超时`
+- 同时保留原始错误文本，便于技术排查
+
+## 建议方案
+1. 在后端增加错误归类逻辑，对 `run.error_message` 做轻量识别。
+2. 在运行详情页额外展示“错误类型”或“可能原因”字段。
+3. 对 `ReadTimeout`、`ConnectTimeout`、`waitFor timeout`、`Replanned ...` 等常见模式做标准化文案映射。
+
+## 暂不处理原因
+- 当前问题不影响任务主链路执行
+- 需要等真实 timeout case 再基于日志样本细化分类规则
+
+## 后续建议
+1. 等再次出现 timeout 样本后，补充具体匹配规则和测试用例。
+2. 前端增加“错误分类 + 原始错误”双展示模式。
+3. 回归覆盖：
+   - Midscene HTTP timeout
+   - `waitFor timeout`
+   - `replanningCycleLimit` 超限
