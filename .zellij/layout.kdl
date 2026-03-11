@@ -70,12 +70,7 @@ layout {
 
       // backend server
       pane command="zsh" cwd="/Users/yaohongliang/work/liuyao/AI/UI/uix" {
-        args "-lc" "mkdir -p logs && ./scripts/start-backend.sh 2>&1 | tee logs/backend.log"
-      }
-
-      // backend logs
-      pane command="zsh" cwd="/Users/yaohongliang/work/liuyao/AI/UI/uix" {
-        args "-lc" "mkdir -p logs && touch logs/backend.log && tail -f logs/backend.log"
+        args "-lc" "./scripts/start-backend.sh 2>&1 "
       }
 
     }
@@ -92,12 +87,7 @@ layout {
 
       // runner server
       pane command="zsh" cwd="/Users/yaohongliang/work/liuyao/AI/UI/uix" {
-        args "-lc" "mkdir -p logs && ./scripts/start-runner.sh 2>&1 | tee logs/runner.log"
-      }
-
-      // runner logs
-      pane command="zsh" cwd="/Users/yaohongliang/work/liuyao/AI/UI/uix" {
-        args "-lc" "mkdir -p logs && touch logs/runner.log && tail -f logs/runner.log"
+        args "-lc" "./scripts/start-runner.sh 2>&1 "
       }
 
     }
