@@ -53,10 +53,6 @@ const defaultTemplate = `# 示例脚本：进入工作台并完成签到
 android:
   deviceId: ""
 
-agent:
-  # 最大重规划次数：当 aiAction 多次尝试后仍未完成目标时，超过该次数会报错退出
-  replanningCycleLimit: 30
-
 tasks:
   - name: 打开工作台
     flow:
