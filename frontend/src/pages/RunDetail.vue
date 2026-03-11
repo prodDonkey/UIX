@@ -257,6 +257,58 @@ const sortedHistory = computed(() =>
   }),
 );
 
+function stringifyTaskParam(value: unknown): string {
+  if (!value) return '';
+  if (typeof value === 'string') return value.trim();
+  if (typeof value !== 'object') return String(value);
+
+  const record = value as Record<string, unknown>;
+  const candidates = [
+    record.description,
+    record.prompt,
+    record.userInstruction,
+    record.assertion,
+    record.name,
+    record.value,
+    record.thought,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+
+  if (record.locate) {
+    const locateText = stringifyTaskParam(record.locate);
+    if (locateText) return locateText;
+  }
+
+  try {
+    return JSON.stringify(record);
+  } catch {
+    return '';
+  }
+}
+
+function extractTaskLogContent(task: Record<string, any>): string {
+  const output = task?.output;
+  const actionTexts = Array.isArray(output?.actions)
+    ? output.actions
+        .map((item: any) => stringifyTaskParam(item?.param) || item?.thought || item?.type || '')
+        .filter(Boolean)
+    : [];
+
+  return (
+    output?.log?.trim() ||
+    output?.thought?.trim() ||
+    task?.thought?.trim() ||
+    stringifyTaskParam(task?.param) ||
+    actionTexts.join('\n') ||
+    ''
+  );
+}
+
 async function refreshTaskLogs(silent = true) {
   const requestId = run.value?.request_id?.trim();
   if (!requestId) {
@@ -269,11 +321,7 @@ async function refreshTaskLogs(silent = true) {
     const tasks = Array.isArray(data?.executionDump?.tasks) ? data.executionDump.tasks : [];
     const nextLogs = tasks
       .map((task: any, index: number) => {
-        const content =
-          task?.output?.log?.trim() ||
-          task?.output?.thought?.trim() ||
-          task?.thought?.trim() ||
-          '';
+        const content = extractTaskLogContent(task);
         if (!content) {
           return null;
         }
