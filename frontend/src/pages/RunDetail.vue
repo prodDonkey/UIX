@@ -53,8 +53,14 @@
         <div class="task-log-panel">
           <h4 class="title">临时执行日志</h4>
           <el-empty v-if="!taskLogs.length" description="暂无实时日志" />
-          <div v-else class="task-log-list">
-            <div v-for="item in taskLogs" :key="item.key" class="task-log-item">
+          <div v-else ref="taskLogListRef" class="task-log-list">
+            <div
+              v-for="item in taskLogs"
+              :key="item.key"
+              class="task-log-item"
+              :class="{ 'task-log-item-active': item.key === activeTaskLogKey }"
+              :data-task-log-key="item.key"
+            >
               <div class="task-log-header">
                 <span class="task-log-type">{{ item.title }}</span>
                 <span class="task-log-status">{{ item.status }}</span>
@@ -74,7 +80,6 @@
               <el-button class="history-trigger" plain @click="historyDrawerVisible = true">
                 同脚本历史执行
               </el-button>
-              <el-button link type="primary" @click="openAndroidPlayground">打开 Android Playground</el-button>
             </div>
           </h4>
           <div class="device-frame-shell">
@@ -146,7 +151,7 @@
 <script setup lang="ts">
 import axios from 'axios';
 import { ElMessage, ElMessageBox } from 'element-plus';
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import { runApi, type Run, type RunReport } from '../api/runs';
@@ -164,8 +169,9 @@ const reportInfo = ref<RunReport | null>(null);
 const isCancelling = ref(false);
 const isRerunning = ref(false);
 const historyDrawerVisible = ref(false);
-const taskLogs = ref<Array<{ key: string; title: string; status: string; content: string }>>([]);
+const taskLogs = ref<Array<{ key: string; title: string; status: string; rawStatus: string; content: string }>>([]);
 const taskLogLayoutRef = ref<HTMLElement | null>(null);
+const taskLogListRef = ref<HTMLElement | null>(null);
 const taskLogPanelWidth = ref(360);
 
 let timer: number | null = null;
@@ -263,6 +269,10 @@ const sortedHistory = computed(() =>
     return b.id - a.id;
   }),
 );
+const activeTaskLogKey = computed(() => {
+  const runningLogs = taskLogs.value.filter((item) => item.rawStatus === 'running');
+  return runningLogs.at(-1)?.key || '';
+});
 const scriptDisplayName = computed(() => {
   if (!run.value) return '-';
   return script.value?.name ? `${script.value.name} (#${run.value.script_id})` : `脚本 #${run.value.script_id}`;
@@ -349,22 +359,23 @@ async function refreshTaskLogs(silent = true) {
   try {
     const data = await runApi.taskProgress(runId.value);
     const tasks = Array.isArray(data?.executionDump?.tasks) ? data.executionDump.tasks : [];
-    const nextLogs = tasks
-      .map((task: any, index: number) => {
+    const nextLogsMap = new Map<string, { key: string; title: string; status: string; rawStatus: string; content: string }>();
+    tasks.forEach((task: any, index: number) => {
         const content = extractTaskLogContent(task);
         if (!content) {
-          return null;
+          return;
         }
         const type = [task?.type, task?.subType].filter(Boolean).join(' / ') || 'Task';
-        return {
-          key: `${task?.taskId || index}-${task?.status || 'unknown'}-${content}`,
+        const identityKey = `${task?.taskId || index}-${type}-${content}`;
+        nextLogsMap.set(identityKey, {
+          key: identityKey,
           title: type,
           status: formatTaskStatus(task?.status),
+          rawStatus: String(task?.status || ''),
           content,
-        };
-      })
-      .filter(Boolean);
-    taskLogs.value = nextLogs;
+        });
+      });
+    taskLogs.value = [...nextLogsMap.values()];
   } catch (error) {
     if (!silent) {
       ElMessage.error('获取实时日志失败，请稍后重试');
@@ -558,10 +569,6 @@ function downloadReport() {
   window.open(reportDownloadUrl.value, '_blank');
 }
 
-function openAndroidPlayground() {
-  window.open(androidPlaygroundEmbedUrl.value, '_blank');
-}
-
 function stopResize() {
   stopResizeListeners?.();
   stopResizeListeners = null;
@@ -596,11 +603,27 @@ function startResize(event: MouseEvent) {
   event.preventDefault();
 }
 
+async function scrollToActiveTaskLog() {
+  const activeKey = activeTaskLogKey.value;
+  if (!activeKey || !taskLogListRef.value) return;
+  await nextTick();
+  const target = taskLogListRef.value.querySelector<HTMLElement>(`[data-task-log-key="${CSS.escape(activeKey)}"]`);
+  target?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
 onMounted(async () => {
   stopped = false;
   await refresh(true);
   await pollingLoop();
 });
+
+watch(
+  () => activeTaskLogKey.value,
+  async (nextKey, prevKey) => {
+    if (!nextKey || nextKey === prevKey) return;
+    await scrollToActiveTaskLog();
+  },
+);
 
 watch(
   () => runId.value,
@@ -741,6 +764,12 @@ onBeforeUnmount(() => {
   border-radius: 10px;
   padding: 12px 14px;
   background: #fff;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+.task-log-item-active {
+  border-color: #60a5fa;
+  background: #eff6ff;
+  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.15);
 }
 .task-log-header {
   display: flex;
