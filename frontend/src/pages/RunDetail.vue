@@ -594,7 +594,7 @@ async function rerun() {
     await refresh(false);
   } catch (error) {
     console.error('[RunDetail] 重新执行失败', error);
-    ElMessage.error('重新执行失败，请稍后重试');
+    ElMessage.error(resolveErrorMessage(error, '重新执行失败，请稍后重试'));
   } finally {
     isRerunning.value = false;
   }

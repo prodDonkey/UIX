@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 import threading
 import time
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 from sqlalchemy import select
@@ -20,6 +21,7 @@ from app.models.script import Script
 from app.services.scene_compiler import SceneCompileError, compile_scene_script, extract_script_env
 
 logger = logging.getLogger("uvicorn.error")
+MIDSCENE_PORT_FALLBACK_SPAN = 5
 
 
 def create_run(db: Session, script_id: int) -> Run:
@@ -419,15 +421,96 @@ def _midscene_cancel_task(request_id: str) -> dict:
 
 
 def _midscene_request(method: str, path: str, json_body: dict | None = None) -> dict:
-    url = f"{settings.midscene_base_url.rstrip('/')}{path}"
     timeout = httpx.Timeout(settings.midscene_timeout_sec)
-    with httpx.Client(timeout=timeout) as client:
-        response = client.request(method, url, json=json_body)
-        response.raise_for_status()
-        data = response.json()
-        if not isinstance(data, dict):
-            raise ValueError(f"Invalid midsce response from {url}: {data}")
-        return data
+    candidate_urls = _build_midscene_candidate_urls(path)
+    last_error: Exception | None = None
+
+    for index, url in enumerate(candidate_urls):
+        try:
+            with httpx.Client(timeout=timeout) as client:
+                response = client.request(method, url, json=json_body)
+                response.raise_for_status()
+                data = response.json()
+                if not isinstance(data, dict):
+                    raise ValueError(f"Invalid midsce response from {url}: {data}")
+                if index > 0:
+                    logger.warning("Midscene 请求已自动切换到备用地址 %s", url)
+                return data
+        except httpx.TimeoutException:
+            raise
+        except httpx.HTTPStatusError as exc:
+            last_error = exc
+            if index < len(candidate_urls) - 1 and _should_retry_midscene_on_fallback(exc):
+                logger.warning("Midscene 地址 %s 返回 %s，尝试备用地址", url, exc.response.status_code)
+                continue
+            raise RuntimeError(_format_midscene_request_error(method, url, exc)) from exc
+        except httpx.RequestError as exc:
+            last_error = exc
+            if index < len(candidate_urls) - 1 and _should_retry_midscene_on_fallback(exc):
+                logger.warning("Midscene 地址 %s 不可达，尝试备用地址: %s", url, exc)
+                continue
+            raise RuntimeError(_format_midscene_request_error(method, url, exc)) from exc
+
+    if last_error is not None:
+        raise RuntimeError(_format_midscene_request_error(method, candidate_urls[-1], last_error)) from last_error
+    raise RuntimeError("Midscene 请求失败：未找到可用请求地址")
+
+
+def _build_midscene_candidate_urls(path: str) -> list[str]:
+    base_url = settings.midscene_base_url.rstrip("/")
+    candidates = [f"{base_url}{path}"]
+    parsed = urlparse(base_url)
+    hostname = (parsed.hostname or "").strip().lower()
+    port = parsed.port
+    if hostname not in {"localhost", "127.0.0.1"} or port is None:
+        return candidates
+
+    for offset in range(1, MIDSCENE_PORT_FALLBACK_SPAN + 1):
+        alt_port = port + offset
+        netloc = _build_netloc_with_port(parsed, alt_port)
+        alt_url = urlunparse(parsed._replace(netloc=netloc)).rstrip("/")
+        candidates.append(f"{alt_url}{path}")
+    return candidates
+
+
+def _build_netloc_with_port(parsed, port: int) -> str:
+    host = parsed.hostname or "localhost"
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    if parsed.username is not None:
+        credentials = parsed.username
+        if parsed.password is not None:
+            credentials = f"{credentials}:{parsed.password}"
+        return f"{credentials}@{host}:{port}"
+    return f"{host}:{port}"
+
+
+def _should_retry_midscene_on_fallback(exc: Exception) -> bool:
+    if isinstance(exc, httpx.ConnectError):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code in {502, 503, 504}
+    return False
+
+
+def _format_midscene_request_error(method: str, url: str, exc: Exception) -> str:
+    parsed = urlparse(url)
+    host = parsed.netloc or parsed.path
+    if isinstance(exc, httpx.HTTPStatusError):
+        status_code = exc.response.status_code
+        reason = exc.response.reason_phrase or "HTTP error"
+        return (
+            f"Midscene 服务调用失败：{method} {url} 返回 {status_code} {reason}。"
+            f"请确认 Android Playground 服务已启动，并检查 backend/.env 中 MIDSCENE_BASE_URL 是否与实际地址一致。"
+            f"若 5800 端口被占用，服务可能自动切换到 5801 及后续端口。"
+        )
+    if isinstance(exc, httpx.ConnectError):
+        return (
+            f"无法连接 Midscene 服务：{host}。请先启动 Android Playground 服务，"
+            f"或检查 backend/.env 中 MIDSCENE_BASE_URL 是否指向正确端口。"
+            f"若 5800 端口被占用，服务可能自动切换到 5801 及后续端口。"
+        )
+    return f"Midscene 服务调用失败：{method} {url}，错误：{exc}"
 
 
 def _map_midscene_status_to_run(status: str) -> str:

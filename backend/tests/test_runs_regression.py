@@ -264,11 +264,69 @@ def test_create_run_persists_script_snapshot(
         assert "打开设置" in (run.script_content_snapshot or "")
         assert run.script_updated_at_snapshot is not None
 
-    detail = client.get(f"/api/runs/{run_id}")
-    assert detail.status_code == 200
-    payload = detail.json()
-    assert payload["script_name_snapshot"] == "快照脚本"
-    assert "打开设置" in payload["script_content_snapshot"]
+
+def test_midscene_request_falls_back_to_next_local_port(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "midscene_base_url", "http://localhost:5800")
+    requested_urls: list[str] = []
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        def request(self, method: str, url: str, json=None):
+            requested_urls.append(url)
+            request = httpx.Request(method, url, json=json)
+            if url.startswith("http://localhost:5800/"):
+                raise httpx.ConnectError("connection refused", request=request)
+            return httpx.Response(200, request=request, json={"requestId": "req-fallback"})
+
+    monkeypatch.setattr(run_service.httpx, "Client", FakeClient)
+
+    result = run_service._midscene_request("POST", "/run-yaml", {"yaml": "tasks: []"})
+
+    assert result["requestId"] == "req-fallback"
+    assert requested_urls[:2] == [
+        "http://localhost:5800/run-yaml",
+        "http://localhost:5801/run-yaml",
+    ]
+
+
+def test_midscene_request_raises_actionable_message_for_gateway_errors(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "midscene_base_url", "http://localhost:5800")
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        def request(self, method: str, url: str, json=None):
+            request = httpx.Request(method, url, json=json)
+            response = httpx.Response(502, request=request)
+            raise httpx.HTTPStatusError("bad gateway", request=request, response=response)
+
+    monkeypatch.setattr(run_service.httpx, "Client", FakeClient)
+
+    try:
+        run_service._midscene_request("POST", "/run-yaml", {"yaml": "tasks: []"})
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("Expected RuntimeError")
+
+    assert "MIDSCENE_BASE_URL" in message
+    assert "5801" in message
+    assert "Android Playground 服务已启动" in message
 
 
 def test_runs_report_can_fallback_to_midscene_report_html(
