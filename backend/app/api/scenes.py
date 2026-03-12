@@ -17,6 +17,7 @@ from app.schemas.scene import (
     SceneScriptUpdate,
     SceneTaskItemCreate,
     SceneTaskItemRead,
+    SceneTaskItemSyncResult,
     SceneTaskItemUpdate,
     SceneUpdate,
 )
@@ -26,7 +27,10 @@ from app.services.scene_compiler import (
     compile_scene_script,
     dump_task_snapshot,
     extract_script_env,
+    find_script_task,
     parse_script_tasks,
+    scene_task_sync_status,
+    task_snapshot_key,
 )
 from app.services.run_service import create_scene_run, start_run_async
 
@@ -99,6 +103,12 @@ def _script_read_payload(db: Session, script: Script) -> ScriptRead:
 
 
 def _serialize_scene_task_item(db: Session, task_item: SceneTaskItem, script: Script) -> SceneTaskItemRead:
+    sync_status, sync_message = scene_task_sync_status(
+        script_content=script.content,
+        task_index=task_item.task_index,
+        task_name_snapshot=task_item.task_name_snapshot,
+        task_content_snapshot=task_item.task_content_snapshot,
+    )
     return SceneTaskItemRead.model_validate(
         {
             "id": task_item.id,
@@ -111,6 +121,8 @@ def _serialize_scene_task_item(db: Session, task_item: SceneTaskItem, script: Sc
             "sort_order": task_item.sort_order,
             "remark": task_item.remark,
             "created_at": task_item.created_at,
+            "sync_status": sync_status,
+            "sync_message": sync_message,
             "script": _script_read_payload(db, script),
         }
     )
@@ -444,6 +456,73 @@ def delete_scene_task_item(scene_id: int, item_id: int, db: Session = Depends(ge
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scene task item not found")
     db.delete(task_item)
     db.commit()
+
+
+@router.post("/{scene_id}/task-items/{item_id}/sync", response_model=SceneTaskItemRead)
+def sync_scene_task_item(scene_id: int, item_id: int, db: Session = Depends(get_db)) -> SceneTaskItemRead:
+    task_item = db.get(SceneTaskItem, item_id)
+    if not task_item or task_item.scene_id != scene_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scene task item not found")
+
+    script = db.get(Script, task_item.script_id)
+    if not script:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Script not found")
+
+    matched_task = find_script_task(script.content, task_item.task_index)
+    if not matched_task:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task not found in current script")
+
+    task_item.task_name_snapshot = matched_task["task_name"]
+    task_item.task_content_snapshot = dump_task_snapshot(matched_task["task"])
+    db.commit()
+    db.refresh(task_item)
+    return _serialize_scene_task_item(db, task_item, script)
+
+
+@router.post("/{scene_id}/task-items/sync", response_model=SceneTaskItemSyncResult)
+def sync_scene_task_items(scene_id: int, db: Session = Depends(get_db)) -> SceneTaskItemSyncResult:
+    _get_scene_or_404(db, scene_id)
+    items = list(
+        db.scalars(
+            select(SceneTaskItem)
+            .where(SceneTaskItem.scene_id == scene_id)
+            .order_by(SceneTaskItem.sort_order.asc(), SceneTaskItem.id.asc())
+        ).all()
+    )
+    if not items:
+        return SceneTaskItemSyncResult(updated_count=0, missing_count=0, task_items=[])
+
+    script_ids = {item.script_id for item in items}
+    scripts = list(db.scalars(select(Script).where(Script.id.in_(script_ids))).all())
+    script_map = {script.id: script for script in scripts}
+
+    updated_count = 0
+    missing_count = 0
+    for item in items:
+        script = script_map.get(item.script_id)
+        if not script:
+            missing_count += 1
+            continue
+        matched_task = find_script_task(script.content, item.task_index)
+        if not matched_task:
+            missing_count += 1
+            continue
+        next_name = matched_task["task_name"]
+        next_snapshot = dump_task_snapshot(matched_task["task"])
+        if next_name == item.task_name_snapshot and task_snapshot_key(next_snapshot) == task_snapshot_key(
+            item.task_content_snapshot
+        ):
+            continue
+        item.task_name_snapshot = next_name
+        item.task_content_snapshot = next_snapshot
+        updated_count += 1
+
+    db.commit()
+    return SceneTaskItemSyncResult(
+        updated_count=updated_count,
+        missing_count=missing_count,
+        task_items=_scene_task_items(db, scene_id),
+    )
 
 
 @router.get("/{scene_id}/compiled-script", response_model=SceneCompiledScriptRead)

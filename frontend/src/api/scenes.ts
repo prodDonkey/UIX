@@ -40,6 +40,8 @@ export type SceneTaskItem = {
   sort_order: number;
   remark: string;
   created_at: string;
+  sync_status: 'current' | 'stale' | 'missing' | string;
+  sync_message: string;
   script: Script;
 };
 
@@ -52,6 +54,12 @@ export type SceneCompiledScript = {
 
 export type SceneRunCreateResult = {
   run_id: number;
+};
+
+export type SceneTaskSyncResult = {
+  updated_count: number;
+  missing_count: number;
+  task_items: SceneTaskItem[];
 };
 
 export type SceneDetail = Scene & {
@@ -126,6 +134,14 @@ export const sceneApi = {
   },
   async removeTaskItem(sceneId: number, itemId: number): Promise<void> {
     await http.delete(`/api/scenes/${sceneId}/task-items/${itemId}`);
+  },
+  async syncTaskItem(sceneId: number, itemId: number): Promise<SceneTaskItem> {
+    const { data } = await http.post(`/api/scenes/${sceneId}/task-items/${itemId}/sync`);
+    return data;
+  },
+  async syncTaskItems(sceneId: number): Promise<SceneTaskSyncResult> {
+    const { data } = await http.post(`/api/scenes/${sceneId}/task-items/sync`);
+    return data;
   },
   async getCompiledScript(sceneId: number): Promise<SceneCompiledScript> {
     const { data } = await http.get(`/api/scenes/${sceneId}/compiled-script`);

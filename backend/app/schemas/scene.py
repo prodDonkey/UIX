@@ -82,7 +82,15 @@ class SceneTaskItemRead(BaseModel):
     sort_order: int
     remark: str
     created_at: datetime
+    sync_status: str = "current"
+    sync_message: str = ""
     script: ScriptRead
+
+
+class SceneTaskItemSyncResult(BaseModel):
+    updated_count: int
+    missing_count: int = 0
+    task_items: list[SceneTaskItemRead] = []
 
 
 class SceneCompiledScriptRead(BaseModel):

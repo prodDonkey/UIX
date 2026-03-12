@@ -253,3 +253,78 @@ def test_scene_run_creates_run_with_compiled_snapshot(tmp_path: Path, monkeypatc
     assert payload["scene_name_snapshot"] == "回收一段流程"
     assert payload["script_id"] == script_id
     assert "name: 前往服务" in payload["script_content_snapshot"]
+
+
+def test_scene_task_items_detect_and_sync_script_changes(tmp_path: Path) -> None:
+    client = _build_test_client(tmp_path)
+
+    script_response = client.post(
+        "/api/scripts",
+        json={
+            "name": "提交流程",
+            "content": (
+                "tasks:\n"
+                "  - name: 查看详情\n"
+                "    flow:\n"
+                "      - aiAction: 点击查看详情按钮\n"
+                "  - name: 提交质检报告\n"
+                "    flow:\n"
+                "      - aiAction: 点击提交质检报告按钮\n"
+            ),
+            "source_type": "manual",
+        },
+    )
+    assert script_response.status_code == 201
+    script_id = script_response.json()["id"]
+
+    scene_response = client.post(
+        "/api/scenes",
+        json={"name": "同步测试场景", "description": "", "source_type": "manual"},
+    )
+    assert scene_response.status_code == 201
+    scene_id = scene_response.json()["id"]
+
+    bind_response = client.post(f"/api/scenes/{scene_id}/scripts", json={"script_id": script_id})
+    assert bind_response.status_code == 201
+
+    add_first = client.post(f"/api/scenes/{scene_id}/task-items", json={"script_id": script_id, "task_index": 0})
+    add_second = client.post(f"/api/scenes/{scene_id}/task-items", json={"script_id": script_id, "task_index": 1})
+    assert add_first.status_code == 201
+    assert add_second.status_code == 201
+
+    updated_script = client.put(
+        f"/api/scripts/{script_id}",
+        json={
+            "name": "提交流程",
+            "content": (
+                "tasks:\n"
+                "  - name: 查看订单详情\n"
+                "    flow:\n"
+                "      - aiAction: 点击订单详情入口\n"
+            ),
+            "source_type": "manual",
+        },
+    )
+    assert updated_script.status_code == 200
+
+    detail = client.get(f"/api/scenes/{scene_id}")
+    assert detail.status_code == 200
+    task_items = detail.json()["task_items"]
+    assert task_items[0]["sync_status"] == "stale"
+    assert task_items[1]["sync_status"] == "missing"
+
+    synced_item = client.post(f"/api/scenes/{scene_id}/task-items/{task_items[0]['id']}/sync")
+    assert synced_item.status_code == 200
+    assert synced_item.json()["task_name_snapshot"] == "查看订单详情"
+    assert synced_item.json()["sync_status"] == "current"
+
+    missing_sync = client.post(f"/api/scenes/{scene_id}/task-items/{task_items[1]['id']}/sync")
+    assert missing_sync.status_code == 409
+
+    sync_all = client.post(f"/api/scenes/{scene_id}/task-items/sync")
+    assert sync_all.status_code == 200
+    sync_payload = sync_all.json()
+    assert sync_payload["updated_count"] == 0
+    assert sync_payload["missing_count"] == 1
+    assert sync_payload["task_items"][0]["sync_status"] == "current"
+    assert sync_payload["task_items"][1]["sync_status"] == "missing"

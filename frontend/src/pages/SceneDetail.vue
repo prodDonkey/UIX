@@ -92,6 +92,13 @@
           <span>执行编排</span>
           <div class="sub-actions">
             <span class="sub-header-desc">从已关联脚本中选择 task，按顺序组合场景执行脚本</span>
+            <el-button
+              plain
+              :disabled="syncableTaskCount === 0 || syncingAllTasks"
+              @click="syncAllTaskItems"
+            >
+              {{ syncingAllTasks ? '同步中...' : `同步全部变更${syncableTaskCount > 0 ? ` (${syncableTaskCount})` : ''}` }}
+            </el-button>
             <el-button type="primary" plain :disabled="taskItems.length === 0" @click="previewCompiledScript">
               预览场景脚本
             </el-button>
@@ -106,7 +113,18 @@
           <div v-else class="task-source-list">
             <div v-for="relation in relations" :key="relation.id" class="task-source-group">
               <div class="task-source-group-title">
-                {{ relation.script.name }}
+                <button
+                  class="task-source-group-title-button"
+                  type="button"
+                  :disabled="batchAddingScriptId !== null"
+                  :title="batchAddingScriptId === relation.script_id ? '正在添加该脚本任务' : '点击将该脚本下所有任务加入当前编排'"
+                  @click="addScriptTaskItems(relation.script_id)"
+                >
+                  {{ relation.script.name }}
+                  <span class="task-source-group-title-action">
+                    {{ batchAddingScriptId === relation.script_id ? '添加中...' : '整组添加' }}
+                  </span>
+                </button>
               </div>
               <el-empty
                 v-if="(scriptTasksMap[relation.script_id] || []).length === 0"
@@ -130,39 +148,66 @@
 
         <div class="task-target-panel">
           <div class="task-panel-title">当前编排</div>
-          <el-table :data="taskItems" row-key="id" empty-text="暂无编排任务">
-            <el-table-column label="顺序" width="80">
-              <template #default="{ row }">{{ row.sort_order }}</template>
-            </el-table-column>
-            <el-table-column label="任务名称" min-width="180">
-              <template #default="{ row }">{{ row.task_name_snapshot }}</template>
-            </el-table-column>
-            <el-table-column label="来源脚本" min-width="160">
-              <template #default="{ row }">{{ row.script.name }}</template>
-            </el-table-column>
-            <el-table-column label="备注" min-width="200">
-              <template #default="{ row }">
+          <el-empty v-if="taskItems.length === 0" description="暂无编排任务" />
+          <div v-else class="task-board">
+            <div class="task-board-header">
+              <div class="task-col-handle">拖拽</div>
+              <div class="task-col-order">顺序</div>
+              <div class="task-col-name">任务名称</div>
+              <div class="task-col-script">来源脚本</div>
+              <div class="task-col-status">状态</div>
+              <div class="task-col-remark">备注</div>
+              <div class="task-col-action">操作</div>
+            </div>
+            <div
+              v-for="(row, index) in taskItems"
+              :key="row.id"
+              class="task-board-row"
+              :class="{
+                'task-board-row-dragging': draggingTaskItemId === row.id,
+                'task-board-row-drop-target': dropTaskItemId === row.id && draggingTaskItemId !== row.id,
+              }"
+              draggable="true"
+              @dragstart="onTaskDragStart(index, row.id, $event)"
+              @dragover.prevent="onTaskDragOver(row.id)"
+              @drop.prevent="onTaskDrop(index)"
+              @dragend="onTaskDragEnd"
+            >
+              <div class="task-col-handle">
+                <button class="drag-handle" type="button" title="拖拽排序">⋮⋮</button>
+              </div>
+              <div class="task-col-order">{{ row.sort_order }}</div>
+              <div class="task-col-name">{{ row.task_name_snapshot }}</div>
+              <div class="task-col-script">{{ row.script.name }}</div>
+              <div class="task-col-status">
+                <el-tag :type="syncStatusTagType(row.sync_status)" effect="light">
+                  {{ syncStatusLabel(row.sync_status) }}
+                </el-tag>
+                <div v-if="row.sync_message" class="task-sync-message">
+                  {{ row.sync_message }}
+                </div>
+              </div>
+              <div class="task-col-remark">
                 <el-input
                   :model-value="row.remark"
                   placeholder="可填写该任务在场景中的用途"
                   @change="(value) => updateTaskRemark(row.id, String(value ?? ''))"
                 />
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="210" fixed="right">
-              <template #default="{ row, $index }">
-                <el-button size="small" :disabled="$index === 0" @click="moveTaskItem($index, -1)">上移</el-button>
+              </div>
+              <div class="task-col-action">
                 <el-button
+                  v-if="row.sync_status === 'stale'"
                   size="small"
-                  :disabled="$index === taskItems.length - 1"
-                  @click="moveTaskItem($index, 1)"
+                  plain
+                  :loading="syncingTaskItemId === row.id"
+                  @click="syncTaskItem(row.id)"
                 >
-                  下移
+                  同步
                 </el-button>
                 <el-button size="small" type="danger" @click="removeTaskItem(row.id)">移除</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </el-card>
@@ -217,6 +262,14 @@ const scriptTasksMap = ref<Record<number, ScriptTask[]>>({});
 const scripts = ref<Script[]>([]);
 const compiledPreviewVisible = ref(false);
 const compiledYaml = ref('');
+const draggingTaskIndex = ref<number | null>(null);
+const draggingTaskItemId = ref<number | null>(null);
+const dropTaskItemId = ref<number | null>(null);
+const taskReordering = ref(false);
+const batchAddingScriptId = ref<number | null>(null);
+const syncingTaskItemId = ref<number | null>(null);
+const syncingAllTasks = ref(false);
+const syncableTaskCount = computed(() => taskItems.value.filter((item) => item.sync_status === 'stale').length);
 
 onMounted(async () => {
   if (Number.isNaN(sceneId.value) || sceneId.value <= 0) {
@@ -291,6 +344,33 @@ async function addTaskItem(scriptId: number, taskIndex: number) {
   await loadScene();
 }
 
+async function addScriptTaskItems(scriptId: number) {
+  const tasks = scriptTasksMap.value[scriptId] || [];
+  if (tasks.length === 0) {
+    ElMessage.warning('该脚本暂无可编排任务');
+    return;
+  }
+
+  if (batchAddingScriptId.value !== null) {
+    return;
+  }
+
+  batchAddingScriptId.value = scriptId;
+  try {
+    for (const task of tasks) {
+      await sceneApi.addTaskItem(sceneId.value, {
+        script_id: scriptId,
+        task_index: task.task_index,
+        remark: '',
+      });
+    }
+    ElMessage.success(`已添加脚本中的 ${tasks.length} 个任务`);
+    await loadScene();
+  } finally {
+    batchAddingScriptId.value = null;
+  }
+}
+
 async function updateRemark(relationId: number, remark: string) {
   const current = relations.value.find((item) => item.id === relationId);
   if (!current || current.remark === remark) return;
@@ -323,6 +403,36 @@ async function updateTaskRemark(itemId: number, remark: string) {
   ElMessage.success('任务备注已更新');
 }
 
+async function syncTaskItem(itemId: number) {
+  syncingTaskItemId.value = itemId;
+  try {
+    const updated = await sceneApi.syncTaskItem(sceneId.value, itemId);
+    const target = taskItems.value.find((item) => item.id === itemId);
+    if (target) {
+      Object.assign(target, updated);
+    }
+    ElMessage.success('任务快照已同步');
+  } finally {
+    syncingTaskItemId.value = null;
+  }
+}
+
+async function syncAllTaskItems() {
+  syncingAllTasks.value = true;
+  try {
+    const result = await sceneApi.syncTaskItems(sceneId.value);
+    taskItems.value = [...result.task_items].sort((a, b) => a.sort_order - b.sort_order);
+    const parts = [];
+    parts.push(`已同步 ${result.updated_count} 项`);
+    if (result.missing_count > 0) {
+      parts.push(`${result.missing_count} 项已失效`);
+    }
+    ElMessage.success(parts.join('，'));
+  } finally {
+    syncingAllTasks.value = false;
+  }
+}
+
 async function moveTaskItem(index: number, delta: number) {
   const nextIndex = index + delta;
   if (nextIndex < 0 || nextIndex >= taskItems.value.length) return;
@@ -335,6 +445,86 @@ async function moveTaskItem(index: number, delta: number) {
   ]);
   ElMessage.success('任务顺序已更新');
   await loadScene();
+}
+
+async function persistTaskOrder(nextItems: SceneTaskItem[]) {
+  const updates = nextItems
+    .map((item, index) => ({
+      id: item.id,
+      sort_order: index + 1,
+      remark: item.remark,
+      changed: item.sort_order !== index + 1,
+    }))
+    .filter((item) => item.changed);
+
+  if (updates.length === 0) {
+    taskItems.value = nextItems.map((item, index) => ({ ...item, sort_order: index + 1 }));
+    return;
+  }
+
+  taskReordering.value = true;
+  const optimisticItems = nextItems.map((item, index) => ({ ...item, sort_order: index + 1 }));
+  taskItems.value = optimisticItems;
+  try {
+    await Promise.all(
+      updates.map((item) =>
+        sceneApi.updateTaskItem(sceneId.value, item.id, {
+          sort_order: item.sort_order,
+          remark: item.remark,
+        }),
+      ),
+    );
+    ElMessage.success('任务顺序已更新');
+  } catch (error) {
+    console.error('[SceneDetail] 拖拽更新任务顺序失败', error);
+    ElMessage.error('拖拽排序失败，请稍后重试');
+    await loadScene();
+  } finally {
+    taskReordering.value = false;
+  }
+}
+
+function onTaskDragStart(index: number, itemId: number, event: DragEvent) {
+  if (taskReordering.value) {
+    event.preventDefault();
+    return;
+  }
+  draggingTaskIndex.value = index;
+  draggingTaskItemId.value = itemId;
+  dropTaskItemId.value = itemId;
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', String(itemId));
+  }
+}
+
+function onTaskDragOver(itemId: number) {
+  if (draggingTaskItemId.value === null || draggingTaskItemId.value === itemId) return;
+  dropTaskItemId.value = itemId;
+}
+
+async function onTaskDrop(dropIndex: number) {
+  const fromIndex = draggingTaskIndex.value;
+  if (fromIndex === null || fromIndex === dropIndex) {
+    onTaskDragEnd();
+    return;
+  }
+
+  const nextItems = [...taskItems.value];
+  const [movedItem] = nextItems.splice(fromIndex, 1);
+  if (!movedItem) {
+    onTaskDragEnd();
+    return;
+  }
+  nextItems.splice(dropIndex, 0, movedItem);
+  onTaskDragEnd();
+  await persistTaskOrder(nextItems);
+}
+
+function onTaskDragEnd() {
+  draggingTaskIndex.value = null;
+  draggingTaskItemId.value = null;
+  dropTaskItemId.value = null;
 }
 
 async function removeTaskItem(itemId: number) {
@@ -387,6 +577,20 @@ function formatSourceType(sourceType: string) {
   if (sourceType === 'manual') return '手动';
   if (sourceType === 'ai') return 'AI生成';
   return sourceType || '-';
+}
+
+function syncStatusLabel(status: string) {
+  if (status === 'current') return '已同步';
+  if (status === 'stale') return '已过期';
+  if (status === 'missing') return '任务缺失';
+  return status || '-';
+}
+
+function syncStatusTagType(status: string) {
+  if (status === 'current') return 'success';
+  if (status === 'stale') return 'warning';
+  if (status === 'missing') return 'danger';
+  return 'info';
 }
 </script>
 
@@ -457,13 +661,119 @@ function formatSourceType(sourceType: string) {
 
 .task-source-group-title {
   margin-bottom: 10px;
+}
+
+.task-source-group-title-button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 0;
+  padding: 0;
+  background: transparent;
   font-weight: 600;
   color: #374151;
+  text-align: left;
+  cursor: pointer;
+}
+
+.task-source-group-title-button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.task-source-group-title-action {
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .task-chip-list {
   display: flex;
   flex-wrap: wrap;
+  gap: 8px;
+}
+
+.task-board {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.task-board-header,
+.task-board-row {
+  display: grid;
+  grid-template-columns: 72px 72px minmax(160px, 1.1fr) minmax(140px, 0.9fr) minmax(140px, 0.9fr) minmax(220px, 1.4fr) 132px;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+}
+
+.task-board-header {
+  background: #f8fafc;
+  font-size: 13px;
+  font-weight: 600;
+  color: #6b7280;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.task-board-row {
+  border-bottom: 1px solid #e5e7eb;
+  transition: background-color 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
+}
+
+.task-board-row:last-child {
+  border-bottom: 0;
+}
+
+.task-board-row-dragging {
+  opacity: 0.55;
+  background: #eff6ff;
+}
+
+.task-board-row-drop-target {
+  background: #f0f9ff;
+  box-shadow: inset 0 2px 0 #60a5fa;
+}
+
+.drag-handle {
+  border: 0;
+  background: transparent;
+  color: #9ca3af;
+  font-size: 18px;
+  line-height: 1;
+  cursor: grab;
+  padding: 4px 8px;
+}
+
+.drag-handle:active {
+  cursor: grabbing;
+}
+
+.task-col-handle,
+.task-col-order,
+.task-col-action {
+  display: flex;
+  align-items: center;
+}
+
+.task-col-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.task-sync-message {
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.task-col-action {
+  justify-content: flex-end;
   gap: 8px;
 }
 
@@ -495,6 +805,26 @@ function formatSourceType(sourceType: string) {
 @media (max-width: 1024px) {
   .task-layout {
     grid-template-columns: 1fr;
+  }
+
+  .task-board-header,
+  .task-board-row {
+    grid-template-columns: 56px 56px minmax(140px, 1fr);
+  }
+
+  .task-col-script,
+  .task-col-status,
+  .task-col-remark,
+  .task-col-action,
+  .task-board-header .task-col-script,
+  .task-board-header .task-col-status,
+  .task-board-header .task-col-remark,
+  .task-board-header .task-col-action {
+    grid-column: 1 / -1;
+  }
+
+  .task-col-action {
+    justify-content: flex-start;
   }
 }
 </style>

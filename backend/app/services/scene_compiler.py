@@ -86,3 +86,27 @@ def compile_scene_script(env: dict, task_snapshots: list[str]) -> str:
 
 def task_snapshot_key(task_snapshot: str) -> str:
     return json.dumps(load_task_snapshot(task_snapshot), ensure_ascii=False, sort_keys=True)
+
+
+def find_script_task(content: str, task_index: int) -> dict | None:
+    tasks = parse_script_tasks(content)
+    return next((item for item in tasks if item["task_index"] == task_index), None)
+
+
+def scene_task_sync_status(
+    *,
+    script_content: str,
+    task_index: int,
+    task_name_snapshot: str,
+    task_content_snapshot: str,
+) -> tuple[str, str]:
+    matched_task = find_script_task(script_content, task_index)
+    if not matched_task:
+        return "missing", "脚本中已不存在该任务"
+
+    current_name = matched_task["task_name"]
+    current_snapshot = dump_task_snapshot(matched_task["task"])
+    if current_name != task_name_snapshot or task_snapshot_key(current_snapshot) != task_snapshot_key(task_content_snapshot):
+        return "stale", "脚本任务已更新，可同步快照"
+
+    return "current", ""
