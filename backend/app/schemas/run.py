@@ -21,6 +21,7 @@ class RunRead(BaseModel):
     error_message: str | None
     current_task: str | None = None
     current_action: str | None = None
+    total_tokens: int | None = None
     scene_name_snapshot: str | None = None
     script_name_snapshot: str | None = None
     script_content_snapshot: str | None = None
@@ -47,6 +48,7 @@ class RunListRead(BaseModel):
     duration_ms: int | None
     request_id: str | None = None
     error_message: str | None
+    total_tokens: int | None = None
     scene_name_snapshot: str | None = None
     remark: str | None = None
     is_starred: bool = False

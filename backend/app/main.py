@@ -35,6 +35,7 @@ def _ensure_runs_columns() -> None:
     expected_columns = {
         "scene_id": "INTEGER",
         "scene_name_snapshot": "VARCHAR(128)",
+        "total_tokens": "INTEGER",
         "current_task": "TEXT",
         "current_action": "TEXT",
         "progress_json": "TEXT",

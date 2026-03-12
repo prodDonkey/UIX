@@ -130,6 +130,7 @@ def test_runs_detail_report_and_progress_still_available(
     assert detail.json()["current_task"] == "登录流程"
     assert detail.json()["script_name_snapshot"] == "运行脚本"
     assert "打开首页" in detail.json()["script_content_snapshot"]
+    assert detail.json()["total_tokens"] is None
 
     progress = client.get(f"/api/runs/{run_id}/progress")
     assert progress.status_code == 200
@@ -150,6 +151,88 @@ def test_runs_detail_report_and_progress_still_available(
     preview_head = client.head(f"/api/runs/{run_id}/report/file")
     assert preview_head.status_code == 200
     assert "text/html" in preview_head.headers.get("content-type", "")
+
+
+def test_runs_task_progress_returns_lightweight_summary(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, session_local = _build_test_client(tmp_path)
+    monkeypatch.setattr("app.api.runs.start_run_async", lambda run_id: None)
+
+    created_script = client.post(
+        "/api/scripts",
+        json={
+            "name": "日志脚本",
+            "content": "android:\n  deviceId: 'emulator-5554'\ntasks:\n  - name: 执行\n    flow:\n      - aiAction: 打开首页\n",
+            "source_type": "manual",
+        },
+    )
+    assert created_script.status_code == 201
+    script_id = created_script.json()["id"]
+
+    created_run = client.post("/api/runs", json={"script_id": script_id})
+    assert created_run.status_code == 201
+    run_id = created_run.json()["id"]
+
+    with session_local() as db:
+        run = db.get(Run, run_id)
+        assert run is not None
+        run.status = "running"
+        run.request_id = "req-progress-123"
+        db.commit()
+
+    heavy_progress = {
+        "status": "running",
+        "executionDump": {
+            "name": "大型日志",
+            "logTime": 1773297213518,
+            "tasks": [
+                {
+                    "taskId": "task-1",
+                    "status": "running",
+                    "type": "Locate",
+                    "subType": "AI",
+                    "thought": "正在识别页面元素",
+                    "param": {
+                        "userInstruction": "点击提交按钮",
+                        "screenshot": {"base64": "data:image/png;base64,AAAA"},
+                        "locate": {"name": "提交按钮"},
+                    },
+                    "output": {
+                        "log": "找到目标按钮",
+                        "thought": "准备执行点击",
+                        "actions": [
+                            {
+                                "type": "Tap",
+                                "thought": "点击提交按钮",
+                                "param": {
+                                    "description": "提交按钮",
+                                    "image": "data:image/png;base64,BBBB",
+                                },
+                            }
+                        ],
+                        "uiContext": {"screenshot": {"base64": "data:image/png;base64,CCCC"}},
+                    },
+                    "recorder": [{"kind": "debug", "message": "huge"}],
+                }
+            ],
+        },
+    }
+    monkeypatch.setattr(run_service, "_midscene_task_progress", lambda request_id: heavy_progress)
+
+    response = client.get(f"/api/runs/{run_id}/task-progress")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["executionDump"]["name"] == "大型日志"
+    assert payload["executionDump"]["logTime"] == 1773297213518
+    task = payload["executionDump"]["tasks"][0]
+    assert task["taskId"] == "task-1"
+    assert task["output"]["log"] == "找到目标按钮"
+    assert "screenshot" not in task["param"]
+    assert "recorder" not in task
+    assert task["output"]["actions"][0]["param"]["description"] == "提交按钮"
+    assert "image" not in task["output"]["actions"][0]["param"]
 
 
 def test_create_run_persists_script_snapshot(
@@ -353,3 +436,171 @@ def test_run_execute_retries_midscene_poll_timeout_without_marking_failed(
         assert run.current_task == "质检流程"
         assert run.current_action == "点击无以上问题"
         assert result_calls["count"] == 2
+
+
+def test_run_execute_persists_total_tokens_from_progress(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_file = tmp_path / "run-service-tokens.db"
+    engine = create_engine(f"sqlite:///{db_file}", connect_args={"check_same_thread": False})
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    with testing_session_local() as db:
+        script = Script(name="token脚本", content="tasks: []", source_type="manual")
+        db.add(script)
+        db.commit()
+        db.refresh(script)
+
+        run = Run(script_id=script.id, status="queued")
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        run_id = run.id
+
+    monkeypatch.setattr(run_service, "SessionLocal", testing_session_local)
+    monkeypatch.setattr(settings, "midscene_status_poll_interval_ms", 1)
+    monkeypatch.setattr(run_service.time, "sleep", lambda _: None)
+    monkeypatch.setattr(run_service, "_midscene_run_yaml", lambda _: {"requestId": "req-token-usage"})
+    monkeypatch.setattr(
+        run_service,
+        "_midscene_task_progress",
+        lambda _: {
+            "status": "running",
+            "currentTask": "执行任务",
+            "currentAction": "点击按钮",
+            "tasks": [
+                {"taskId": "plan-1", "status": "finished", "usage": {"total_tokens": 120}},
+                {"taskId": "act-1", "status": "finished", "usage": {"prompt_tokens": 80, "completion_tokens": 20}},
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        run_service,
+        "_midscene_task_result",
+        lambda _: {"status": "completed", "reportPath": "/tmp/report.html"},
+    )
+
+    run_service._execute_run(run_id)
+
+    with testing_session_local() as db:
+        run = db.get(Run, run_id)
+        assert run is not None
+        assert run.status == "success"
+        assert run.total_tokens == 220
+
+
+def test_get_run_can_reconcile_midscene_not_found_to_failed(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, session_local = _build_test_client(tmp_path)
+    monkeypatch.setattr("app.api.runs.start_run_async", lambda run_id: None)
+    monkeypatch.setattr(
+        "app.services.run_service._midscene_task_result",
+        lambda _: {
+            "status": "not_found",
+            "error": "Task result not found",
+        },
+    )
+    monkeypatch.setattr(
+        "app.services.run_service._midscene_task_progress",
+        lambda _: {
+            "status": "not_found",
+            "tasks": [],
+        },
+    )
+
+    created_script = client.post(
+        "/api/scripts",
+        json={
+            "name": "状态收敛脚本",
+            "content": "tasks:\n  - name: 执行\n    flow:\n      - aiAction: 打开首页\n",
+            "source_type": "manual",
+        },
+    )
+    assert created_script.status_code == 201
+    script_id = created_script.json()["id"]
+
+    created_run = client.post("/api/runs", json={"script_id": script_id})
+    assert created_run.status_code == 201
+    run_id = created_run.json()["id"]
+
+    with session_local() as db:
+        run = db.get(Run, run_id)
+        assert run is not None
+        run.status = "running"
+        run.started_at = run.started_at or run_service.datetime.utcnow()
+        run.request_id = "req-not-found-terminal"
+        db.commit()
+
+    detail = client.get(f"/api/runs/{run_id}")
+    assert detail.status_code == 200
+    payload = detail.json()
+    assert payload["status"] == "failed"
+    assert payload["error_message"] == "Task result not found"
+    assert payload["ended_at"] is not None
+
+    with session_local() as db:
+        run = db.get(Run, run_id)
+        assert run is not None
+        assert run.status == "failed"
+        assert run.error_message == "Task result not found"
+
+
+def test_get_runs_list_can_reconcile_midscene_not_found_to_failed(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, session_local = _build_test_client(tmp_path)
+    monkeypatch.setattr("app.api.runs.start_run_async", lambda run_id: None)
+    monkeypatch.setattr(
+        "app.services.run_service._midscene_task_result",
+        lambda _: {
+            "status": "not_found",
+            "error": "Task result not found",
+        },
+    )
+    monkeypatch.setattr(
+        "app.services.run_service._midscene_task_progress",
+        lambda _: {
+            "status": "not_found",
+            "tasks": [],
+        },
+    )
+
+    created_script = client.post(
+        "/api/scripts",
+        json={
+            "name": "列表状态收敛脚本",
+            "content": "tasks:\n  - name: 执行\n    flow:\n      - aiAction: 打开首页\n",
+            "source_type": "manual",
+        },
+    )
+    assert created_script.status_code == 201
+    script_id = created_script.json()["id"]
+
+    created_run = client.post("/api/runs", json={"script_id": script_id})
+    assert created_run.status_code == 201
+    run_id = created_run.json()["id"]
+
+    with session_local() as db:
+        run = db.get(Run, run_id)
+        assert run is not None
+        run.status = "running"
+        run.started_at = run.started_at or run_service.datetime.utcnow()
+        run.request_id = "req-list-not-found-terminal"
+        db.commit()
+
+    listed = client.get("/api/runs", params={"script_id": script_id})
+    assert listed.status_code == 200
+    payload = listed.json()
+    target = next(item for item in payload if item["id"] == run_id)
+    assert target["status"] == "failed"
+    assert target["error_message"] == "Task result not found"
+
+    with session_local() as db:
+        run = db.get(Run, run_id)
+        assert run is not None
+        assert run.status == "failed"

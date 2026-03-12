@@ -25,6 +25,7 @@ from app.services.run_service import (
     get_run_task_progress,
     get_runtime_report_path,
     list_runs,
+    sync_run_terminal_status,
     start_run_async,
 )
 
@@ -65,7 +66,8 @@ def get_runs(
     limit: int = Query(default=200, ge=1, le=1000),
     db: Session = Depends(get_db),
 ) -> list[Run]:
-    return list_runs(db, script_id=script_id, scene_id=scene_id, limit=limit)
+    runs = list_runs(db, script_id=script_id, scene_id=scene_id, limit=limit)
+    return [sync_run_terminal_status(db, run) for run in runs]
 
 
 @router.post("", response_model=RunRead, status_code=status.HTTP_201_CREATED)
@@ -83,6 +85,7 @@ def get_run(run_id: int, db: Session = Depends(get_db)) -> Run:
     run = db.get(Run, run_id)
     if not run:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+    run = sync_run_terminal_status(db, run)
     return run
 
 
@@ -91,6 +94,7 @@ def get_run_progress(run_id: int, db: Session = Depends(get_db)) -> RunProgressR
     run = db.get(Run, run_id)
     if not run:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+    run = sync_run_terminal_status(db, run)
     compact_progress_json = _compact_progress_json(run.progress_json)
     return RunProgressRead(
         run_id=run.id,
@@ -107,6 +111,7 @@ def get_run_task_progress_detail(run_id: int, db: Session = Depends(get_db)) -> 
     run = db.get(Run, run_id)
     if not run:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+    run = sync_run_terminal_status(db, run)
     return get_run_task_progress(run)
 
 

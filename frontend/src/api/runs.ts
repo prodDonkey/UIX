@@ -14,6 +14,7 @@ export type Run = {
   error_message: string | null;
   current_task?: string | null;
   current_action?: string | null;
+  total_tokens?: number | null;
   scene_name_snapshot?: string | null;
   progress_json?: string | null;
   script_name_snapshot?: string | null;

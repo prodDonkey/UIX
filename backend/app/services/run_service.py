@@ -101,6 +101,7 @@ def list_runs(
                 Run.duration_ms,
                 Run.request_id,
                 Run.error_message,
+                Run.total_tokens,
                 Run.scene_name_snapshot,
                 Run.remark,
                 Run.is_starred,
@@ -273,6 +274,7 @@ def _execute_run(run_id: int) -> None:
                     run.error_message = error_message
                     run.report_path = _extract_report_path(result)
                     run.summary_path = None
+                    run.total_tokens = _extract_total_tokens_from_progress(last_progress)
                     if last_progress is not None:
                         final_progress = _compact_midscene_progress(last_progress, run_id)
                         run.current_task = final_progress.get("currentTask")
@@ -321,6 +323,61 @@ def get_runtime_report_path(run: Run) -> str | None:
     return value
 
 
+def sync_run_terminal_status(db: Session, run: Run) -> Run:
+    if run.status != "running" or not run.request_id:
+        return run
+
+    try:
+        result = _midscene_task_result(run.request_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Midscene task-result补偿同步失败，保持原状态 runId=%s requestId=%s error=%s",
+            run.id,
+            run.request_id,
+            exc,
+        )
+        return run
+
+    midscene_status = str(result.get("status") or "").strip().lower()
+    run_status = _map_midscene_status_to_run(midscene_status)
+    if run_status not in ("success", "failed", "cancelled"):
+        return run
+
+    error_message = _extract_error_message(result, midscene_status)
+    run.status = run_status
+    run.ended_at = datetime.utcnow()
+    if run.started_at:
+        run.duration_ms = int((run.ended_at - run.started_at).total_seconds() * 1000)
+    run.error_message = error_message
+
+    report_path = _extract_report_path(result)
+    if report_path:
+        run.report_path = report_path
+
+    if run.total_tokens is None:
+        try:
+            progress = _midscene_task_progress(run.request_id)
+        except Exception:  # noqa: BLE001
+            progress = None
+        run.total_tokens = _extract_total_tokens_from_progress(progress)
+        if isinstance(progress, dict):
+            final_progress = _compact_midscene_progress(progress, run.id)
+            run.current_task = final_progress.get("currentTask")
+            run.current_action = final_progress.get("currentAction")
+            run.progress_json = json.dumps(final_progress, ensure_ascii=False)
+
+    db.commit()
+    db.refresh(run)
+    logger.info(
+        "Midscene task-result补偿同步成功 runId=%s requestId=%s midsceneStatus=%s runStatus=%s",
+        run.id,
+        run.request_id,
+        midscene_status,
+        run.status,
+    )
+    return run
+
+
 def get_report_html(run: Run) -> str | None:
     if not run.request_id:
         return None
@@ -349,7 +406,8 @@ def _midscene_task_progress(request_id: str) -> dict:
 def get_run_task_progress(run: Run) -> dict:
     if not run.request_id:
         return {"executionDump": None}
-    return _midscene_task_progress(run.request_id)
+    raw_progress = _midscene_task_progress(run.request_id)
+    return _summarize_midscene_task_progress(raw_progress, run.id)
 
 
 def _midscene_task_result(request_id: str) -> dict:
@@ -398,6 +456,200 @@ def _extract_report_path(result: dict) -> str | None:
     if isinstance(value, str) and value.strip():
         return value.strip()
     return None
+
+
+def _extract_total_tokens_from_progress(progress: dict | None) -> int | None:
+    if not isinstance(progress, dict):
+        return None
+
+    tasks = progress.get("tasks")
+    if not isinstance(tasks, list):
+        return None
+
+    task_token_map: dict[str, int] = {}
+    fallback_total = 0
+
+    for index, task in enumerate(tasks):
+        if not isinstance(task, dict):
+            continue
+        usage = task.get("usage")
+        if not isinstance(usage, dict):
+            continue
+
+        total_value = usage.get("total_tokens")
+        if total_value is None:
+            total_value = usage.get("totalTokens")
+        if total_value is None:
+            prompt_tokens = usage.get("prompt_tokens") or usage.get("promptTokens") or 0
+            completion_tokens = usage.get("completion_tokens") or usage.get("completionTokens") or 0
+            total_value = prompt_tokens + completion_tokens
+
+        try:
+            total_tokens = int(total_value or 0)
+        except (TypeError, ValueError):
+            continue
+
+        task_id = str(task.get("taskId") or task.get("id") or f"fallback-{index}")
+        task_token_map[task_id] = total_tokens
+        fallback_total += total_tokens
+
+    if task_token_map:
+        return sum(task_token_map.values())
+    if fallback_total > 0:
+        return fallback_total
+    return None
+
+
+def _summarize_midscene_task_progress(progress: dict, run_id: int) -> dict:
+    if not isinstance(progress, dict):
+        return {
+            "runId": run_id,
+            "executionDump": {"name": None, "logTime": None, "tasks": []},
+        }
+
+    execution_dump = progress.get("executionDump")
+    source = execution_dump if isinstance(execution_dump, dict) else progress
+    tasks = source.get("tasks")
+    compact_tasks: list[dict] = []
+    if isinstance(tasks, list):
+        for task in tasks:
+            if not isinstance(task, dict):
+                continue
+            compact_tasks.append(_summarize_midscene_task(task))
+
+    return {
+        "runId": run_id,
+        "status": _map_midscene_status_to_run(str(progress.get("status") or "").lower()),
+        "currentTask": progress.get("currentTask") or progress.get("current_task"),
+        "currentAction": progress.get("currentAction") or progress.get("current_action"),
+        "executionDump": {
+            "name": source.get("name"),
+            "logTime": source.get("logTime") or source.get("log_time"),
+            "tasks": compact_tasks,
+        },
+    }
+
+
+def _summarize_midscene_task(task: dict) -> dict:
+    return {
+        "taskId": task.get("taskId") or task.get("id"),
+        "status": task.get("status"),
+        "type": task.get("type"),
+        "subType": task.get("subType"),
+        "thought": _compact_midscene_value(task.get("thought")),
+        "param": _compact_midscene_value(task.get("param")),
+        "output": _compact_midscene_output(task.get("output")),
+        "timing": _compact_midscene_value(task.get("timing")),
+        "error": _compact_midscene_value(task.get("error")),
+    }
+
+
+def _compact_midscene_output(value: object) -> dict | None:
+    if not isinstance(value, dict):
+        return None
+
+    output: dict[str, object] = {}
+    for key in ("log", "thought", "message", "error"):
+        compact_value = _compact_midscene_value(value.get(key))
+        if compact_value is not None:
+            output[key] = compact_value
+
+    actions = value.get("actions")
+    if isinstance(actions, list):
+        compact_actions = []
+        for action in actions[:10]:
+            if not isinstance(action, dict):
+                continue
+            compact_actions.append(
+                {
+                    "type": action.get("type"),
+                    "thought": _compact_midscene_value(action.get("thought")),
+                    "param": _compact_midscene_value(action.get("param")),
+                }
+            )
+        if compact_actions:
+            output["actions"] = compact_actions
+        if len(actions) > len(compact_actions):
+            output["actionCount"] = len(actions)
+
+    return output or None
+
+
+def _compact_midscene_value(value: object, *, depth: int = 0) -> object:
+    if value is None:
+        return None
+    if depth >= 4:
+        return _compact_midscene_scalar(value)
+    if isinstance(value, str):
+        return _compact_midscene_string(value)
+    if isinstance(value, (int, float, bool)):
+        return value
+    if isinstance(value, list):
+        compact_items = [
+            compact_item
+            for compact_item in (
+                _compact_midscene_value(item, depth=depth + 1) for item in value[:10]
+            )
+            if compact_item is not None
+        ]
+        if len(value) > len(compact_items):
+            compact_items.append(f"... truncated {len(value) - len(compact_items)} items")
+        return compact_items
+    if isinstance(value, dict):
+        compact: dict[str, object] = {}
+        for key, item in value.items():
+            if _is_heavy_midscene_key(key):
+                continue
+            compact_item = _compact_midscene_value(item, depth=depth + 1)
+            if compact_item is None:
+                continue
+            compact[str(key)] = compact_item
+        return compact or None
+    return _compact_midscene_scalar(value)
+
+
+def _compact_midscene_scalar(value: object) -> object:
+    if isinstance(value, str):
+        return _compact_midscene_string(value)
+    return str(value)
+
+
+def _compact_midscene_string(value: str) -> str:
+    text = value.strip()
+    if not text:
+        return ""
+    if text.startswith("data:image/"):
+        return "[omitted image data]"
+    max_length = 4000
+    if len(text) <= max_length:
+        return text
+    return f"{text[:max_length]}... [truncated {len(text) - max_length} chars]"
+
+
+def _is_heavy_midscene_key(key: object) -> bool:
+    normalized = str(key).strip().lower()
+    if not normalized:
+        return False
+    heavy_keys = {
+        "base64",
+        "screenshot",
+        "screenshots",
+        "uicontext",
+        "recorder",
+        "cache",
+        "dom",
+        "html",
+        "snapshot",
+        "snapshots",
+        "before",
+        "after",
+        "image",
+        "images",
+        "video",
+    }
+    return normalized in heavy_keys
+
+
 def _compact_midscene_progress(progress: dict, run_id: int) -> dict:
     tasks = progress.get("tasks")
     compact_tasks: list[dict] = []

@@ -23,6 +23,7 @@ class Run(Base):
     current_task: Mapped[str | None] = mapped_column(Text, nullable=True)
     current_action: Mapped[str | None] = mapped_column(Text, nullable=True)
     progress_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    total_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     scene_name_snapshot: Mapped[str | None] = mapped_column(String(128), nullable=True)
     script_name_snapshot: Mapped[str | None] = mapped_column(String(128), nullable=True)
     script_content_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)

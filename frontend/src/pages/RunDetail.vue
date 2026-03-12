@@ -53,6 +53,7 @@
       <el-descriptions-item label="开始时间">{{ formatDateTime(run.started_at) }}</el-descriptions-item>
       <el-descriptions-item label="结束时间">{{ formatDateTime(run.ended_at) }}</el-descriptions-item>
       <el-descriptions-item label="耗时(ms)">{{ run.duration_ms ?? '-' }}</el-descriptions-item>
+      <el-descriptions-item label="Token消耗">{{ run.total_tokens ?? '-' }}</el-descriptions-item>
       <el-descriptions-item label="报告路径">
         <el-link v-if="displayReportUrl" :href="displayReportUrl" target="_blank" type="primary">
           {{ displayReportUrl }}
@@ -230,7 +231,8 @@ const taskLogListRef = ref<HTMLElement | null>(null);
 const taskLogPanelWidth = ref(360);
 
 let timer: number | null = null;
-let stopped = false;
+let destroyed = false;
+let pollingGeneration = 0;
 let lastDetailFetchAt = 0;
 let lastScriptIdLoaded: number | null = null;
 let stopResizeListeners: (() => void) | null = null;
@@ -523,11 +525,31 @@ function resolveErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-async function pollingLoop() {
-  while (!stopped) {
+function clearPollingTimer() {
+  if (timer) {
+    window.clearTimeout(timer);
+    timer = null;
+  }
+}
+
+function stopPolling() {
+  pollingGeneration += 1;
+  clearPollingTimer();
+}
+
+function startPolling() {
+  stopPolling();
+  if (destroyed) return;
+  const currentGeneration = pollingGeneration;
+  void pollingLoop(currentGeneration);
+}
+
+async function pollingLoop(generation: number) {
+  while (!destroyed && generation === pollingGeneration) {
     if (run.value && !isActiveRunStatus(run.value.status)) break;
 
     await refresh(true);
+    if (destroyed || generation !== pollingGeneration) break;
 
     const interval = getPollIntervalMs(run.value?.status);
     if (!interval) break;
@@ -737,9 +759,8 @@ async function scrollToActiveTaskLog() {
 }
 
 onMounted(async () => {
-  stopped = false;
-  await refresh(true);
-  await pollingLoop();
+  destroyed = false;
+  startPolling();
 });
 
 watch(
@@ -752,20 +773,20 @@ watch(
 
 watch(
   () => runId.value,
-  async () => {
+  () => {
     lastDetailFetchAt = 0;
     historyDrawerVisible.value = false;
     reportInfo.value = null;
     script.value = null;
     lastScriptIdLoaded = null;
-    await refresh(false);
+    startPolling();
   },
 );
 
 onBeforeUnmount(() => {
-  stopped = true;
+  destroyed = true;
+  stopPolling();
   stopResize();
-  if (timer) window.clearTimeout(timer);
 });
 </script>
 
