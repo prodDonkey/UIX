@@ -12,10 +12,10 @@
 
 | 里程碑 | 目标 | 当前实现状态 | 备注 |
 |---|---|---|---|
-| Milestone A | 后端任务编排模型与解析能力 | TODO | 需新增 task 编排数据模型与脚本任务解析接口 |
-| Milestone B | 前端场景详情页任务编排 UI | TODO | 需新增任务选择、编排列表、预览交互 |
-| Milestone C | 场景运行接入现有 run 系统 | TODO | 需支持编译场景脚本并执行 |
-| Milestone D | 联调验证与文档收敛 | TODO | 需补自动化与手工验收记录 |
+| Milestone A | 后端任务编排模型与解析能力 | DONE | 已完成任务模型、解析接口、编排 CRUD、编译接口与测试 |
+| Milestone B | 前端场景详情页任务编排 UI | DONE | 已完成任务选择、编排列表、备注、预览交互 |
+| Milestone C | 场景运行接入现有 run 系统 | DONE | 已支持执行整个场景，并在运行详情展示来源场景 |
+| Milestone D | 联调验证与文档收敛 | DOING | 自动化校验已完成，手工验收记录与补充文档待收敛 |
 
 > 当前已具备的前置能力：
 > 1. 场景已支持按顺序关联多个脚本。
@@ -34,7 +34,7 @@
 
 ## A1. 新增 SceneTaskItem 数据模型
 - 优先级：P0
-- 状态：TODO
+- 状态：DONE
 - 目标：为场景保存任务级编排项。
 - 产出：
   - `backend/app/models/scene_task_item.py`
@@ -55,7 +55,7 @@
 
 ## A2. 新增 Task 编排相关 schema
 - 优先级：P0
-- 状态：TODO
+- 状态：DONE
 - 目标：定义任务解析结果、编排项读写结构、编译结果结构。
 - 产出：
   - `backend/app/schemas/scene_task_item.py` 或合并到 `scene.py`
@@ -64,7 +64,7 @@
 
 ## A3. 实现脚本任务解析接口
 - 优先级：P0
-- 状态：TODO
+- 状态：DONE
 - 目标：解析脚本 YAML 中的 `tasks[]` 并返回任务列表。
 - 产出：
   - `GET /api/scripts/{script_id}/tasks`
@@ -79,7 +79,7 @@
 
 ## A4. 实现场景任务编排 CRUD
 - 优先级：P0
-- 状态：TODO
+- 状态：DONE
 - 目标：支持向场景添加任务项、调整顺序、编辑备注、删除编排项。
 - API：
   - `GET /api/scenes/{scene_id}/task-items`
@@ -92,7 +92,7 @@
 
 ## A5. 实现场景编译接口
 - 优先级：P0
-- 状态：TODO
+- 状态：DONE
 - 目标：将场景编排项拼装成最终 YAML。
 - API：
   - `GET /api/scenes/{scene_id}/compiled-script`
@@ -105,7 +105,7 @@
 
 ## A6. 后端测试与回归保护
 - 优先级：P1
-- 状态：TODO
+- 状态：DONE
 - 目标：补齐任务级编排相关测试。
 - 覆盖点：
   - 脚本任务解析
@@ -126,7 +126,7 @@
 
 ## B1. 扩展 scenes API 封装
 - 优先级：P0
-- 状态：TODO
+- 状态：DONE
 - 目标：补齐任务编排相关接口调用。
 - 产出：
   - `frontend/src/api/scenes.ts`
@@ -143,7 +143,7 @@
 
 ## B2. SceneDetail 页面新增“执行编排”区域
 - 优先级：P0
-- 状态：TODO
+- 状态：DONE
 - 目标：保留现有“关联脚本”，并新增任务级编排面板。
 - 产出：
   - `frontend/src/pages/SceneDetail.vue`
@@ -156,10 +156,10 @@
 
 ## B3. 开发任务选择组件
 - 优先级：P1
-- 状态：TODO
+- 状态：DONE
 - 目标：支持从已关联脚本中挑选 task 进入编排。
 - 产出：
-  - `frontend/src/components/SceneTaskPicker.vue`
+  - 已内嵌于 `frontend/src/pages/SceneDetail.vue`
 - 交互建议：
   - 以脚本分组展示任务名
   - 支持搜索 task 名称
@@ -169,7 +169,7 @@
 
 ## B4. 支持编排预览
 - 优先级：P1
-- 状态：TODO
+- 状态：DONE
 - 目标：以弹窗形式展示编译后的 YAML。
 - 产出：
   - `frontend/src/components/SceneCompiledScriptPreview.vue`
@@ -179,7 +179,7 @@
 
 ## B5. 前端构建与页面回归
 - 优先级：P1
-- 状态：TODO
+- 状态：DONE
 - 目标：确保新增编排能力不影响现有场景页与脚本页。
 - 验收：
   - `cd frontend && npm run build` 通过
@@ -195,7 +195,7 @@
 
 ## C1. 新增场景运行接口
 - 优先级：P0
-- 状态：TODO
+- 状态：DONE
 - 目标：从场景编排结果直接发起运行。
 - API：
   - `POST /api/scenes/{scene_id}/runs`
@@ -207,7 +207,7 @@
 
 ## C2. 为 run 补充来源场景与编排快照
 - 优先级：P0
-- 状态：TODO
+- 状态：DONE
 - 目标：保证场景执行可追溯。
 - 建议字段：
   - `scene_id`
@@ -219,7 +219,7 @@
 
 ## C3. 运行详情页联动展示
 - 优先级：P1
-- 状态：TODO
+- 状态：DONE
 - 目标：在运行详情页补充来源场景和执行快照入口。
 - 影响文件：
   - `frontend/src/pages/RunDetail.vue`
@@ -238,7 +238,7 @@
 
 ## D1. 后端联调验证
 - 优先级：P0
-- 状态：TODO
+- 状态：DONE
 - 目标：验证解析、编排、编译、运行全链路。
 - 验收：
   - 场景任务编排接口返回正确
@@ -247,7 +247,7 @@
 
 ## D2. 前端手工验证
 - 优先级：P0
-- 状态：TODO
+- 状态：DOING
 - 核心验收路径：
   1. 创建/打开场景
   2. 关联多个脚本
@@ -261,7 +261,7 @@
 
 ## D3. 回归验证
 - 优先级：P0
-- 状态：TODO
+- 状态：DONE
 - 范围：
   - 场景关联脚本原有能力
   - 脚本编辑与脚本执行
@@ -271,7 +271,7 @@
 
 ## D4. 文档收敛
 - 优先级：P1
-- 状态：TODO
+- 状态：DOING
 - 目标：补充本期设计与验收记录。
 - 产出建议：
   - `specify/v1.3/spec.md`（如需要）
