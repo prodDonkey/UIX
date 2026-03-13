@@ -52,7 +52,7 @@ function parsePort(rawPort: string | undefined): number {
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): RunnerConfig {
   ensureEnvLoaded();
   return {
-    host: env.RUNNER_HOST || "127.0.0.1",
+    host: env.RUNNER_HOST || "0.0.0.0",
     port: parsePort(env.RUNNER_PORT)
   };
 }

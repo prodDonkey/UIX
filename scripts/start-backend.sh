@@ -2,9 +2,11 @@
 
 cd backend || exit
 
+HOST_IP=10.238.15.91
 PORT=8000
 
 echo "🚀 starting backend..."
+echo "🌐 backend url: http://${HOST_IP}:${PORT}"
 
 PID=$(lsof -ti:$PORT)
 
