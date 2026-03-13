@@ -87,9 +87,9 @@
 
 ### 6.1 服务配置
 新增配置项（示例）：
-- `RUNNER_BASE_URL`
-- `RUNNER_TIMEOUT_SEC`
-- `RUNNER_PROGRESS_POLL_INTERVAL_MS`
+- `MIDSCENE_BASE_URL`
+- `MIDSCENE_TIMEOUT_SEC`
+- `MIDSCENE_STATUS_POLL_INTERVAL_MS`
 
 ### 6.2 数据模型调整（runs）
 建议新增字段：
@@ -136,4 +136,3 @@
   - 应对：增加超时与 watchdog，自动失败收敛。
 - 风险：设备连接波动影响步骤连续性。
   - 应对：Runner 明确区分设备异常与业务失败，输出可诊断错误。
-

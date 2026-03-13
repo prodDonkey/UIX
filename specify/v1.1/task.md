@@ -123,9 +123,9 @@
   - `backend/app/core/config.py`
   - `backend/.env.example`
 - 配置项：
-  - `RUNNER_BASE_URL`
-  - `RUNNER_TIMEOUT_SEC`
-  - `RUNNER_PROGRESS_POLL_INTERVAL_MS`
+  - `MIDSCENE_BASE_URL`
+  - `MIDSCENE_TIMEOUT_SEC`
+  - `MIDSCENE_STATUS_POLL_INTERVAL_MS`
 - 验收：
   - 启动时配置可读取且有默认值。
 

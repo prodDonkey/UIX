@@ -24,8 +24,8 @@
 - 保持 backend/frontend 不变，仅切换 Runner 实例。
 - 验证 `start/progress/cancel/result` 四个接口。
 
-### 路径 B：Runner 地址切回稳定实例
-- 调整 backend 的 `RUNNER_BASE_URL` 指向稳定 Runner。
+### 路径 B：Midscene 地址切回稳定实例
+- 调整 backend 的 `MIDSCENE_BASE_URL` 指向稳定的 Android Playground 服务。
 - 重启 backend 使配置生效。
 - 执行冒烟 run，确认状态收敛。
 

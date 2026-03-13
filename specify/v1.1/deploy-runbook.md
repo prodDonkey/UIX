@@ -38,10 +38,10 @@ npm run dev -- --port 5173
 ```
 
 ## 4. 关键配置
-### 4.1 backend -> runner 连接配置
-- `RUNNER_BASE_URL`：Runner 服务地址（示例：`http://127.0.0.1:8787`）
-- `RUNNER_TIMEOUT_SEC`：Runner 请求超时秒数
-- `RUNNER_PROGRESS_POLL_INTERVAL_MS`：后端轮询 Runner 进度周期（毫秒）
+### 4.1 backend -> Midscene 连接配置
+- `MIDSCENE_BASE_URL`：Midscene / Android Playground 服务地址（示例：`http://127.0.0.1:5800`）
+- `MIDSCENE_TIMEOUT_SEC`：后端请求 Midscene 的超时秒数
+- `MIDSCENE_STATUS_POLL_INTERVAL_MS`：后端轮询 Midscene 状态周期（毫秒）
 
 ### 4.2 Midscene 配置
 - `MIDSCENE_MODEL_BASE_URL`
@@ -51,7 +51,7 @@ npm run dev -- --port 5173
 
 ## 5. 发布流程（测试 -> 预发 -> 生产）
 1. 发布 `runner-service` 新版本并完成健康检查（`GET /health`）。
-2. 更新 backend 环境变量中的 `RUNNER_BASE_URL` 指向目标 Runner。
+2. 更新 backend 环境变量中的 `MIDSCENE_BASE_URL` 指向目标 Android Playground 服务。
 3. 发布 backend，执行 `runs` 与 `progress` 接口冒烟。
 4. 发布 frontend，确认运行详情页步骤面板与实时画面均可用。
 5. 执行 D1 四类用例抽检后放量。
@@ -64,8 +64,8 @@ npm run dev -- --port 5173
 
 ## 7. 常见故障排查
 1. 任务一直 queued
-- 检查 `RUNNER_BASE_URL` 是否可达。
-- 检查 Runner 日志是否有启动失败或端口冲突。
+- 检查 `MIDSCENE_BASE_URL` 是否可达。
+- 检查 Android Playground 日志是否有启动失败或端口冲突。
 
 2. 有实时画面但无步骤更新
 - 检查 `/api/runs/{id}/progress` 返回是否包含 `progress_json`。

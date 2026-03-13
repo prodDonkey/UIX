@@ -80,9 +80,9 @@
 - `app/api/runs.py`：新增 progress 接口
 
 ### 4.3 配置项
-- `RUNNER_BASE_URL`
-- `RUNNER_TIMEOUT_SEC`
-- `RUNNER_PROGRESS_POLL_INTERVAL_MS`
+- `MIDSCENE_BASE_URL`
+- `MIDSCENE_TIMEOUT_SEC`
+- `MIDSCENE_STATUS_POLL_INTERVAL_MS`
 
 ### 4.4 数据模型变更（runs）
 新增字段：
@@ -205,4 +205,3 @@
 - 兼容：脚本管理、运行列表、报告功能无回归。
 - 文档：spec/plan/运行手册更新到位。
 - 运维：具备监控、日志、版本回滚路径。
-

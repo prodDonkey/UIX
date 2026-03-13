@@ -11,9 +11,6 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./app.db"
     run_scripts_dir: str = "./runtime/scripts"
     run_command_prefix: str = "npx midscene"
-    runner_base_url: str = "http://127.0.0.1:8100"
-    runner_timeout_sec: int = 10
-    runner_progress_poll_interval_ms: int = 1000
     midscene_base_url: str = "http://localhost:5800"
     midscene_timeout_sec: int = 10
     midscene_status_poll_interval_ms: int = 2000
