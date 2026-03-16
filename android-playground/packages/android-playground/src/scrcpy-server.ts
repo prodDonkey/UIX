@@ -16,6 +16,13 @@ export const debugPage = getDebug('android:playground');
 
 const promiseExec = promisify(exec);
 
+type ScrcpyFailureInfo = {
+  message: string;
+  detail: string;
+  output: string[];
+  reason: 'connection-refused' | 'transport' | 'video-stream' | 'unknown';
+};
+
 export default class ScrcpyServer {
   app: express.Application;
   httpServer: HttpServer;
@@ -50,6 +57,62 @@ export default class ScrcpyServer {
 
     // setup REST API routes
     this.setupApiRoutes();
+  }
+
+  private extractScrcpyFailure(error: unknown): ScrcpyFailureInfo {
+    const rawMessage =
+      error instanceof Error ? error.message : 'Unknown scrcpy error';
+    const output = Array.isArray((error as any)?.output)
+      ? ((error as any).output as unknown[]).map((item) => String(item))
+      : [];
+    const normalizedOutput = output.join('\n');
+    const lowerText = `${rawMessage}\n${normalizedOutput}`.toLowerCase();
+
+    if (lowerText.includes('connection refused')) {
+      return {
+        reason: 'connection-refused',
+        message:
+          '屏幕投射服务启动失败：设备侧无法连接本地 scrcpy 通道，请检查是否存在并发 ADB/scrcpy 连接或连接瞬断。',
+        detail: rawMessage,
+        output,
+      };
+    }
+
+    if (
+      lowerText.includes('connection terminated') ||
+      lowerText.includes('read failed') ||
+      lowerText.includes('device offline') ||
+      lowerText.includes('closed')
+    ) {
+      return {
+        reason: 'transport',
+        message:
+          '屏幕投射服务启动失败：ADB 传输链路不稳定，请检查 USB/Wi-Fi 调试连接后重试。',
+        detail: rawMessage,
+        output,
+      };
+    }
+
+    if (
+      lowerText.includes('screen streaming stopped') ||
+      lowerText.includes('video encoder') ||
+      lowerText.includes('video stream')
+    ) {
+      return {
+        reason: 'video-stream',
+        message:
+          '屏幕投射服务启动失败：设备视频流初始化失败，请尝试关闭其他投屏会话或降低设备负载后重试。',
+        detail: rawMessage,
+        output,
+      };
+    }
+
+    return {
+      reason: 'unknown',
+      message: '屏幕投射服务启动失败，已回退为普通 ADB 截图模式。',
+      detail: rawMessage,
+      output,
+    };
   }
 
   // setup API routes
@@ -214,6 +277,15 @@ export default class ScrcpyServer {
       );
     } catch (error) {
       console.error('failed to start scrcpy:', error);
+      const output = Array.isArray((error as any)?.output)
+        ? (error as any).output
+        : null;
+      if (output?.length) {
+        console.error(
+          'scrcpy server output:\n%s',
+          output.map((item: unknown) => String(item)).join('\n'),
+        );
+      }
       throw error;
     }
   }
@@ -432,8 +504,10 @@ export default class ScrcpyServer {
           }
         } catch (error: any) {
           console.error('failed to connect device:', error);
-          socket.emit('error', {
-            message: `Failed to connect device: ${error?.message || 'Unknown error'}`,
+          const scrcpyFailure = this.extractScrcpyFailure(error);
+          socket.emit('scrcpy-unavailable', {
+            ...scrcpyFailure,
+            fallbackMode: 'adb-screenshot',
           });
         }
       });

@@ -52,7 +52,7 @@
       <el-descriptions-item label="状态">{{ formatRunStatus(run.status) }}</el-descriptions-item>
       <el-descriptions-item label="开始时间">{{ formatDateTime(run.started_at) }}</el-descriptions-item>
       <el-descriptions-item label="结束时间">{{ formatDateTime(run.ended_at) }}</el-descriptions-item>
-      <el-descriptions-item label="耗时(ms)">{{ run.duration_ms ?? '-' }}</el-descriptions-item>
+      <el-descriptions-item label="耗时(秒)">{{ formatDurationSeconds(run.duration_ms) }}</el-descriptions-item>
       <el-descriptions-item label="Token消耗">{{ run.total_tokens ?? '-' }}</el-descriptions-item>
       <el-descriptions-item label="报告路径">
         <el-link v-if="displayReportUrl" :href="displayReportUrl" target="_blank" type="primary">
@@ -128,57 +128,65 @@
   <el-drawer
     v-model="historyDrawerVisible"
     title="同脚本历史执行"
-    size="420px"
+    :size="`${historyDrawerWidth}px`"
     append-to-body
     :destroy-on-close="false"
     class="history-drawer"
   >
-    <div class="history-drawer-body">
-      <div class="history-drawer-summary">
-        <span>{{ historySummaryLabel }}</span>
-        <span>共 {{ sortedHistory.length }} 条</span>
+    <div class="history-drawer-shell">
+      <div class="history-drawer-resizer" @mousedown="startHistoryDrawerResize" />
+      <div class="history-drawer-body">
+        <div class="history-drawer-summary">
+          <span>{{ historySummaryLabel }}</span>
+          <span>共 {{ sortedHistory.length }} 条</span>
+        </div>
+        <el-table
+          :data="sortedHistory"
+          size="small"
+          row-key="id"
+          height="100%"
+          :row-class-name="historyRowClassName"
+        >
+          <el-table-column prop="id" label="Run ID" width="88" />
+          <el-table-column label="⭐" width="56" align="center">
+            <template #default="{ row }">
+              <el-button size="small" link :type="row.is_starred ? 'warning' : 'info'" @click="toggleStar(row)">
+                {{ row.is_starred ? '★' : '☆' }}
+              </el-button>
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" width="88">
+            <template #default="{ row }">
+              {{ formatRunStatus(row.status) }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="started_at" label="开始时间" min-width="156" :formatter="formatHistoryTime" />
+          <el-table-column label="耗时(秒)" width="96">
+            <template #default="{ row }">
+              {{ formatDurationSeconds(row.duration_ms) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="备注" min-width="120" show-overflow-tooltip>
+            <template #default="{ row }">
+              {{ row.remark || '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="156" fixed="right">
+            <template #default="{ row }">
+              <el-button size="small" link @click="goRun(row.id)">查看</el-button>
+              <el-button
+                size="small"
+                link
+                type="primary"
+                @click="openScriptSnapshot(row)"
+              >
+                脚本
+              </el-button>
+              <el-button size="small" link type="primary" @click="editRemark(row)">备注</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
       </div>
-      <el-table
-        :data="sortedHistory"
-        size="small"
-        row-key="id"
-        height="100%"
-        :row-class-name="historyRowClassName"
-      >
-        <el-table-column prop="id" label="Run ID" width="88" />
-        <el-table-column label="⭐" width="56" align="center">
-          <template #default="{ row }">
-            <el-button size="small" link :type="row.is_starred ? 'warning' : 'info'" @click="toggleStar(row)">
-              {{ row.is_starred ? '★' : '☆' }}
-            </el-button>
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="88">
-          <template #default="{ row }">
-            {{ formatRunStatus(row.status) }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="started_at" label="开始时间" min-width="156" :formatter="formatHistoryTime" />
-        <el-table-column label="备注" min-width="120" show-overflow-tooltip>
-          <template #default="{ row }">
-            {{ row.remark || '-' }}
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="156" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" link @click="goRun(row.id)">查看</el-button>
-            <el-button
-              size="small"
-              link
-              type="primary"
-              @click="openScriptSnapshot(row)"
-            >
-              脚本
-            </el-button>
-            <el-button size="small" link type="primary" @click="editRemark(row)">备注</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
     </div>
   </el-drawer>
 
@@ -221,6 +229,7 @@ const reportInfo = ref<RunReport | null>(null);
 const isCancelling = ref(false);
 const isRerunning = ref(false);
 const historyDrawerVisible = ref(false);
+const historyDrawerWidth = ref(420);
 const scriptSnapshotVisible = ref(false);
 const scriptSnapshotTitle = ref('执行脚本快照');
 const scriptSnapshotMeta = ref('');
@@ -236,6 +245,7 @@ let pollingGeneration = 0;
 let lastDetailFetchAt = 0;
 let lastScriptIdLoaded: number | null = null;
 let stopResizeListeners: (() => void) | null = null;
+let stopHistoryDrawerResizeListeners: (() => void) | null = null;
 
 const statusTagType = computed(() => {
   if (!run.value) return 'info';
@@ -257,6 +267,14 @@ function formatRunStatus(status?: Run['status'] | null) {
   if (status === 'failed') return '失败';
   if (status === 'cancelled') return '已取消';
   return status;
+}
+
+function formatDurationSeconds(durationMs?: number | null) {
+  if (durationMs == null) return '-';
+  const seconds = durationMs / 1000;
+  if (!Number.isFinite(seconds)) return '-';
+  if (seconds >= 60) return `${seconds.toFixed(1)} 秒`;
+  return `${seconds.toFixed(2)} 秒`;
 }
 
 function formatTaskStatus(status?: string | null) {
@@ -750,6 +768,38 @@ function startResize(event: MouseEvent) {
   event.preventDefault();
 }
 
+function stopHistoryDrawerResize() {
+  stopHistoryDrawerResizeListeners?.();
+  stopHistoryDrawerResizeListeners = null;
+  document.body.classList.remove('history-drawer-resizing');
+}
+
+function startHistoryDrawerResize(event: MouseEvent) {
+  if (window.innerWidth <= 768) return;
+
+  const minWidth = 360;
+  const maxWidth = Math.min(960, Math.max(minWidth, window.innerWidth - 280));
+
+  const handleMouseMove = (moveEvent: MouseEvent) => {
+    const nextWidth = window.innerWidth - moveEvent.clientX;
+    historyDrawerWidth.value = Math.min(maxWidth, Math.max(minWidth, nextWidth));
+  };
+
+  const handleMouseUp = () => {
+    stopHistoryDrawerResize();
+  };
+
+  stopHistoryDrawerResize();
+  document.body.classList.add('history-drawer-resizing');
+  window.addEventListener('mousemove', handleMouseMove);
+  window.addEventListener('mouseup', handleMouseUp, { once: true });
+  stopHistoryDrawerResizeListeners = () => {
+    window.removeEventListener('mousemove', handleMouseMove);
+    window.removeEventListener('mouseup', handleMouseUp);
+  };
+  event.preventDefault();
+}
+
 async function scrollToActiveTaskLog() {
   const activeKey = activeTaskLogKey.value;
   if (!activeKey || !taskLogListRef.value) return;
@@ -787,6 +837,7 @@ onBeforeUnmount(() => {
   destroyed = true;
   stopPolling();
   stopResize();
+  stopHistoryDrawerResize();
 });
 </script>
 
@@ -949,12 +1000,39 @@ onBeforeUnmount(() => {
 }
 .history-drawer :deep(.el-drawer__body) {
   padding-top: 0;
+  padding-left: 0;
+}
+.history-drawer-shell {
+  height: 100%;
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr);
+}
+.history-drawer-resizer {
+  cursor: col-resize;
+  position: relative;
+  background: linear-gradient(180deg, rgba(148, 163, 184, 0.08), rgba(148, 163, 184, 0.02));
+}
+.history-drawer-resizer::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 16px;
+  bottom: 16px;
+  transform: translateX(-50%);
+  width: 3px;
+  border-radius: 999px;
+  background: #cbd5e1;
+  transition: background-color 0.2s ease;
+}
+.history-drawer-resizer:hover::before {
+  background: #60a5fa;
 }
 .history-drawer-body {
   height: 100%;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  padding-left: 12px;
 }
 .history-drawer-summary {
   display: flex;
@@ -1012,6 +1090,15 @@ onBeforeUnmount(() => {
   .device-actions {
     width: 100%;
     justify-content: space-between;
+  }
+  .history-drawer-shell {
+    grid-template-columns: 1fr;
+  }
+  .history-drawer-resizer {
+    display: none;
+  }
+  .history-drawer-body {
+    padding-left: 0;
   }
   .script-info {
     align-items: flex-start;

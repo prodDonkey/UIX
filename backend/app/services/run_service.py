@@ -297,6 +297,19 @@ def _execute_run(run_id: int) -> None:
                 run.error_message = str(exc)
                 if request_id and not run.request_id:
                     run.request_id = request_id
+                if run.total_tokens is None and request_id:
+                    try:
+                        progress = _midscene_task_progress(request_id)
+                    except Exception:  # noqa: BLE001
+                        progress = last_progress
+                    else:
+                        last_progress = progress
+                    run.total_tokens = _extract_total_tokens_from_progress(progress)
+                    if isinstance(progress, dict):
+                        final_progress = _compact_midscene_progress(progress, run_id)
+                        run.current_task = final_progress.get("currentTask")
+                        run.current_action = final_progress.get("currentAction")
+                        run.progress_json = json.dumps(final_progress, ensure_ascii=False)
                 db.commit()
 
 

@@ -35,9 +35,9 @@
       </el-table-column>
       <el-table-column prop="started_at" label="开始时间" min-width="180" :formatter="formatTime" />
       <el-table-column prop="ended_at" label="结束时间" min-width="180" :formatter="formatTime" />
-      <el-table-column label="耗时(ms)" width="110">
+      <el-table-column label="耗时(秒)" width="120">
         <template #default="{ row }">
-          {{ row.duration_ms ?? '-' }}
+          {{ formatDurationSeconds(row.duration_ms) }}
         </template>
       </el-table-column>
       <el-table-column label="错误原因" min-width="280" show-overflow-tooltip>
@@ -109,6 +109,14 @@ function formatRunStatus(status: Run['status']) {
 
 function formatTime(_: unknown, __: unknown, value: string | null) {
   return formatServerDateTime(value);
+}
+
+function formatDurationSeconds(durationMs?: number | null) {
+  if (durationMs == null) return '-';
+  const seconds = durationMs / 1000;
+  if (!Number.isFinite(seconds)) return '-';
+  if (seconds >= 60) return `${seconds.toFixed(1)} 秒`;
+  return `${seconds.toFixed(2)} 秒`;
 }
 
 function goRunDetail(runId: number) {

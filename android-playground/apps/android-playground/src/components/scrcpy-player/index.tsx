@@ -49,6 +49,14 @@ interface VideoMetadata {
   [key: string]: any;
 }
 
+interface ScrcpyUnavailablePayload {
+  message?: string;
+  detail?: string;
+  output?: string[];
+  reason?: string;
+  fallbackMode?: string;
+}
+
 export interface ScrcpyRefMethods {
   disconnectDevice: () => void;
 }
@@ -71,6 +79,9 @@ export const ScrcpyPlayer = forwardRef<ScrcpyRefMethods, ScrcpyProps>(
       height: number;
     } | null>(null);
     const [deviceId, setDeviceId] = useState<string>('');
+    const [scrcpyUnavailableReason, setScrcpyUnavailableReason] = useState<
+      string | null
+    >(null);
 
     const socketRef = useRef<Socket | null>(null);
     const videoContainerRef = useRef<HTMLDivElement>(null);
@@ -377,6 +388,7 @@ export const ScrcpyPlayer = forwardRef<ScrcpyRefMethods, ScrcpyProps>(
       setConnected(false);
       setConnecting(false);
       setScreenInfo(null);
+      setScrcpyUnavailableReason(null);
     }, [safeRemoveChildNodes]);
 
     // Expose methods to parent component
@@ -398,6 +410,7 @@ export const ScrcpyPlayer = forwardRef<ScrcpyRefMethods, ScrcpyProps>(
         setConnected(false);
         setConnecting(true);
         setScreenInfo(null);
+        setScrcpyUnavailableReason(null);
 
         // short delay to ensure resources are cleaned
         await new Promise((resolve) => setTimeout(resolve, 150));
@@ -546,11 +559,49 @@ export const ScrcpyPlayer = forwardRef<ScrcpyRefMethods, ScrcpyProps>(
                   // update UI status
                   setConnected(true);
                   setConnecting(false);
+                  setScrcpyUnavailableReason(null);
                   // video metadata received successfully, device connected
                 } catch (error: any) {
                   console.error('Failed to initialize decoder:', error);
                   setConnecting(false);
                 }
+              },
+            );
+
+            socketRef.current.on(
+              'scrcpy-unavailable',
+              (payload: ScrcpyUnavailablePayload) => {
+                console.warn('scrcpy unavailable:', payload);
+
+                if (metadataTimeoutRef.current) {
+                  clearTimeout(metadataTimeoutRef.current);
+                  metadataTimeoutRef.current = null;
+                }
+
+                if (decoderRef.current) {
+                  try {
+                    decoderRef.current.dispose();
+                    decoderRef.current = null;
+                  } catch (error) {
+                    console.error('Error disposing decoder:', error);
+                  }
+                }
+
+                if (videoContainerRef.current) {
+                  safeRemoveChildNodes(
+                    videoContainerRef.current.querySelector('.canvas-wrapper'),
+                  );
+                }
+
+                setConnected(false);
+                setConnecting(false);
+                setScreenInfo(null);
+                setScrcpyUnavailableReason(
+                  payload.message || '屏幕投射不可用，已回退为普通截图模式',
+                );
+                message.warning(
+                  payload.message || '屏幕投射不可用，已回退为普通截图模式',
+                );
               },
             );
 
@@ -590,7 +641,11 @@ export const ScrcpyPlayer = forwardRef<ScrcpyRefMethods, ScrcpyProps>(
                 );
               }
 
-              if (autoReconnect && !reconnectTimerRef.current) {
+              if (
+                autoReconnect &&
+                !scrcpyUnavailableReason &&
+                !reconnectTimerRef.current
+              ) {
                 reconnectTimerRef.current = setTimeout(() => {
                   reconnectTimerRef.current = null;
                   connectDevice();
@@ -601,7 +656,11 @@ export const ScrcpyPlayer = forwardRef<ScrcpyRefMethods, ScrcpyProps>(
             console.error('Failed to create socket connection:', error);
             setConnecting(false);
 
-            if (autoReconnect && !reconnectTimerRef.current) {
+            if (
+              autoReconnect &&
+              !scrcpyUnavailableReason &&
+              !reconnectTimerRef.current
+            ) {
               reconnectTimerRef.current = setTimeout(() => {
                 reconnectTimerRef.current = null;
                 connectDevice();
@@ -625,7 +684,11 @@ export const ScrcpyPlayer = forwardRef<ScrcpyRefMethods, ScrcpyProps>(
         console.error(`Failed to connect: ${error.message}`);
         message.error('连接失败');
 
-        if (autoReconnect && !reconnectTimerRef.current) {
+        if (
+          autoReconnect &&
+          !scrcpyUnavailableReason &&
+          !reconnectTimerRef.current
+        ) {
           reconnectTimerRef.current = setTimeout(() => {
             reconnectTimerRef.current = null;
             connectDevice();
@@ -637,12 +700,19 @@ export const ScrcpyPlayer = forwardRef<ScrcpyRefMethods, ScrcpyProps>(
       maxSize,
       autoReconnect,
       reconnectInterval,
+      scrcpyUnavailableReason,
       disconnectDevice,
+      safeRemoveChildNodes,
     ]);
 
     // detect autoConnect change, connect device when autoConnect is true
     useEffect(() => {
-      if (autoConnect && !connected && !connecting) {
+      if (
+        autoConnect &&
+        !connected &&
+        !connecting &&
+        !scrcpyUnavailableReason
+      ) {
         // only trigger connection when not connected and not connecting
         const timer = setTimeout(() => {
           connectDevice();
@@ -650,7 +720,13 @@ export const ScrcpyPlayer = forwardRef<ScrcpyRefMethods, ScrcpyProps>(
 
         return () => clearTimeout(timer);
       }
-    }, [autoConnect, connected, connecting, connectDevice]);
+    }, [
+      autoConnect,
+      connected,
+      connecting,
+      connectDevice,
+      scrcpyUnavailableReason,
+    ]);
 
     // resource cleanup useEffect
     useEffect(() => {
@@ -773,7 +849,7 @@ export const ScrcpyPlayer = forwardRef<ScrcpyRefMethods, ScrcpyProps>(
                       <div className="empty-state-text">
                         {connecting
                           ? '正在连接设备...'
-                          : '当前未连接设备'}
+                          : scrcpyUnavailableReason || '当前未连接设备'}
                       </div>
                       {!connecting && (
                         <Button

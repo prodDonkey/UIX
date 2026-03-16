@@ -549,6 +549,59 @@ def test_run_execute_persists_total_tokens_from_progress(
         assert run.total_tokens == 220
 
 
+def test_run_execute_persists_total_tokens_when_execution_fails(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_file = tmp_path / "run-service-failed-tokens.db"
+    engine = create_engine(f"sqlite:///{db_file}", connect_args={"check_same_thread": False})
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    with testing_session_local() as db:
+        script = Script(name="失败token脚本", content="tasks: []", source_type="manual")
+        db.add(script)
+        db.commit()
+        db.refresh(script)
+
+        run = Run(script_id=script.id, status="queued")
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        run_id = run.id
+
+    monkeypatch.setattr(run_service, "SessionLocal", testing_session_local)
+    monkeypatch.setattr(run_service, "_midscene_run_yaml", lambda _: {"requestId": "req-failed-token"})
+    monkeypatch.setattr(
+        run_service,
+        "_midscene_task_progress",
+        lambda _: {
+            "status": "failed",
+            "currentTask": "执行任务",
+            "currentAction": "执行 AI 步骤",
+            "tasks": [
+                {"taskId": "plan-1", "status": "finished", "usage": {"total_tokens": 123}},
+                {"taskId": "act-1", "status": "finished", "usage": {"prompt_tokens": 45, "completion_tokens": 12}},
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        run_service,
+        "_midscene_task_result",
+        lambda _: (_ for _ in ()).throw(RuntimeError("task result gateway failed")),
+    )
+
+    run_service._execute_run(run_id)
+
+    with testing_session_local() as db:
+        run = db.get(Run, run_id)
+        assert run is not None
+        assert run.status == "failed"
+        assert run.total_tokens == 180
+        assert run.current_task == "执行任务"
+        assert run.current_action == "执行 AI 步骤"
+
+
 def test_get_run_can_reconcile_midscene_not_found_to_failed(
     tmp_path: Path,
     monkeypatch,

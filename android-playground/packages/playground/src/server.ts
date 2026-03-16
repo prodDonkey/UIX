@@ -3,8 +3,8 @@ import http from 'node:http';
 import type { Server } from 'node:http';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ExecutionDump, IExecutionDump } from '@midscene/core';
-import { GroupedActionDump } from '@midscene/core';
+import { ExecutionDump, GroupedActionDump } from '@midscene/core';
+import type { IExecutionDump } from '@midscene/core';
 import type { Agent as PageAgent } from '@midscene/core/agent';
 import { getTmpDir } from '@midscene/core/utils';
 import { PLAYGROUND_SERVER_PORT } from '@midscene/shared/constants';
@@ -280,13 +280,8 @@ class PlaygroundServer {
       });
       if (dumpString) {
         const groupedDump = GroupedActionDump.fromSerializedString(dumpString);
-        const bestExecution =
-          groupedDump.executions?.reduce((acc, current) => {
-            const accCount = acc?.tasks?.length || 0;
-            const currentCount = current?.tasks?.length || 0;
-            return currentCount >= accCount ? current : acc;
-          }, groupedDump.executions?.[0]) || null;
-        this.mergeTaskExecutionDump(requestId, bestExecution || undefined);
+        const mergedExecution = this.flattenGroupedExecutionDump(groupedDump);
+        this.mergeTaskExecutionDump(requestId, mergedExecution || undefined);
         return;
       }
     } catch (error) {
@@ -310,6 +305,41 @@ class PlaygroundServer {
             ? task.locate
             : null;
     return `${timingStart}|${timingEnd}|${type}|${desc}|${JSON.stringify(param)}`;
+  }
+
+  private flattenGroupedExecutionDump(
+    groupedDump: GroupedActionDump,
+  ): ExecutionDump | null {
+    const executions = Array.isArray(groupedDump.executions)
+      ? groupedDump.executions.filter(Boolean)
+      : [];
+    if (!executions.length) {
+      return null;
+    }
+
+    const mergedTasks: any[] = [];
+    const taskKeySet = new Set<string>();
+    for (const execution of executions) {
+      const tasks = Array.isArray(execution?.tasks) ? execution.tasks : [];
+      for (const task of tasks) {
+        const key = this.taskKey(task);
+        if (taskKeySet.has(key)) {
+          continue;
+        }
+        mergedTasks.push(task);
+        taskKeySet.add(key);
+      }
+    }
+
+    const latestExecution = executions[executions.length - 1];
+    return new ExecutionDump({
+      logTime: latestExecution?.logTime || Date.now(),
+      name: latestExecution?.name || groupedDump.groupName || 'Execution',
+      description:
+        latestExecution?.description || groupedDump.groupDescription,
+      tasks: mergedTasks,
+      aiActContext: latestExecution?.aiActContext,
+    });
   }
 
   private mergeTaskExecutionDump(
@@ -359,14 +389,9 @@ class PlaygroundServer {
       });
       if (dumpString) {
         const groupedDump = GroupedActionDump.fromSerializedString(dumpString);
-        task.dump =
-          groupedDump.executions?.reduce((acc, current) => {
-            const accCount = acc?.tasks?.length || 0;
-            const currentCount = current?.tasks?.length || 0;
-            return currentCount >= accCount ? current : acc;
-          }, groupedDump.executions?.[0]) || null;
+        task.dump = this.flattenGroupedExecutionDump(groupedDump);
         this.mergeTaskExecutionDump(requestId, task.dump || undefined);
-      task.dump =
+        task.dump =
           (this.taskExecutionDumps[requestId] as ExecutionDump | null) ||
           task.dump;
       }
