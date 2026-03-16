@@ -18,8 +18,11 @@ fi
 
 while true
 do
-  echo "🔨 rebuilding core/playground/android-playground..."
+  echo "🔨 rebuilding shared/core/playground/android/android-playground..."
+  corepack pnpm --filter @midscene/shared build || exit 1
   corepack pnpm --filter @midscene/core build || exit 1
+  corepack pnpm --filter @midscene/playground build || exit 1
+  corepack pnpm --filter @midscene/android build || exit 1
   corepack pnpm --filter @midscene/android-playground build || exit 1
 
   cd "${ANDROID_PKG_DIR}" || exit

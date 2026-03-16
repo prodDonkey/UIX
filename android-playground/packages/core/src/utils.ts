@@ -80,55 +80,13 @@ const reportInitializedMap = new Map<string, boolean>();
 
 declare const __DEV_REPORT_PATH__: string;
 
-function getRawReportTpl() {
+export function getReportTpl() {
   if (typeof __DEV_REPORT_PATH__ === 'string' && __DEV_REPORT_PATH__) {
-    try {
-      if (existsSync(__DEV_REPORT_PATH__)) {
-        return fs.readFileSync(__DEV_REPORT_PATH__, 'utf-8');
-      }
-      console.warn(
-        `[@midscene/core] Report template not found at ${__DEV_REPORT_PATH__}, fallback to built-in template.`,
-      );
-    } catch (error) {
-      console.warn(
-        `[@midscene/core] Failed to read report template at ${__DEV_REPORT_PATH__}, fallback to built-in template.`,
-        error,
-      );
-    }
+    return fs.readFileSync(__DEV_REPORT_PATH__, 'utf-8');
   }
   const reportTpl = 'REPLACE_ME_WITH_REPORT_HTML';
 
   return reportTpl;
-}
-
-function sanitizeReportTemplate(template: string): string {
-  if (!template) {
-    return template;
-  }
-
-  let nextTemplate = template
-    .replace(/<title>\s*Report\s*-\s*Midscene\.js\s*<\/title>/i, '<title>Report</title>')
-    .replace(/<link\s+rel="icon"[\s\S]*?\/>\s*/i, '');
-
-  const cleanupStyle = `
-<style>
-.page-nav,
-.version-info-section {
-  display: none !important;
-}
-</style>`;
-
-  if (nextTemplate.includes('</body>')) {
-    nextTemplate = nextTemplate.replace('</body>', `${cleanupStyle}</body>`);
-  } else {
-    nextTemplate += cleanupStyle;
-  }
-
-  return nextTemplate;
-}
-
-export function getReportTpl() {
-  return sanitizeReportTemplate(getRawReportTpl());
 }
 
 /**

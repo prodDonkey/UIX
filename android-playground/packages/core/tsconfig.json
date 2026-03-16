@@ -4,7 +4,8 @@
     "baseUrl": ".",
     "sourceMap": true,
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@midscene/shared/img": ["../shared/src/img/index.ts"]
     },
     "rootDir": "./src",
     "target": "es2018",

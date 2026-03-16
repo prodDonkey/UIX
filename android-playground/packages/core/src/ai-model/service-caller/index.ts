@@ -219,6 +219,7 @@ export async function callAI(
     stream?: boolean;
     onChunk?: StreamingCallback;
     deepThink?: DeepThinkOption;
+    abortSignal?: AbortSignal;
   },
 ): Promise<{
   content: string;
@@ -245,7 +246,14 @@ export async function callAI(
   const debugProfileDetail = getDebug('ai:profile:detail');
 
   const startTime = Date.now();
-  const temperature = modelConfig.temperature ?? 0;
+
+  const temperature = (() => {
+    if (modelFamily === 'gpt-5') {
+      debugCall('temperature is ignored for gpt-5');
+      return undefined;
+    }
+    return modelConfig.temperature ?? 0;
+  })();
 
   const isStreaming = options?.stream && options?.onChunk;
   let content: string | undefined;
@@ -321,6 +329,37 @@ export async function callAI(
     warnCall(warningMessage);
   }
 
+  // For GPT-5, add "detail": "original" to image inputs to get original resolution images in reasoning content
+  const messagesWithImageDetail: ChatCompletionMessageParam[] = (() => {
+    if (modelFamily !== 'gpt-5') {
+      return messages;
+    }
+
+    return messages.map((msg) => {
+      if (!Array.isArray(msg.content)) {
+        return msg;
+      }
+
+      const content = msg.content.map((part) => {
+        if (part && part.type === 'image_url' && part.image_url?.url) {
+          return {
+            ...part,
+            image_url: {
+              ...part.image_url,
+              detail: 'original',
+            },
+          };
+        }
+        return part;
+      });
+
+      return {
+        ...msg,
+        content,
+      } as ChatCompletionMessageParam;
+    });
+  })();
+
   try {
     debugCall(
       `sending ${isStreaming ? 'streaming ' : ''}request to ${modelName}`,
@@ -330,12 +369,13 @@ export async function callAI(
       const stream = (await completion.create(
         {
           model: modelName,
-          messages,
+          messages: messagesWithImageDetail,
           ...commonConfig,
           ...reasoningEffortConfig,
         },
         {
           stream: true,
+          ...(options?.abortSignal ? { signal: options.abortSignal } : {}),
         },
       )) as Stream<OpenAI.Chat.Completions.ChatCompletionChunk> & {
         _request_id?: string | null;
@@ -410,12 +450,15 @@ export async function callAI(
 
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
-          const result = await completion.create({
-            model: modelName,
-            messages,
-            ...commonConfig,
-            ...reasoningEffortConfig,
-          } as any);
+          const result = await completion.create(
+            {
+              model: modelName,
+              messages: messagesWithImageDetail,
+              ...commonConfig,
+              ...reasoningEffortConfig,
+            } as any,
+            options?.abortSignal ? { signal: options.abortSignal } : undefined,
+          );
 
           timeCost = Date.now() - startTime;
 
@@ -455,6 +498,10 @@ export async function callAI(
           break; // Success, exit retry loop
         } catch (error) {
           lastError = error as Error;
+          // Do not retry if the request was aborted by the caller
+          if (options?.abortSignal?.aborted) {
+            break;
+          }
           if (attempt < maxAttempts) {
             warnCall(
               `AI call failed (attempt ${attempt}/${maxAttempts}), retrying in ${retryInterval}ms... Error: ${lastError.message}`,
@@ -509,6 +556,7 @@ export async function callAIWithObjectResponse<T>(
   modelConfig: IModelConfig,
   options?: {
     deepThink?: DeepThinkOption;
+    abortSignal?: AbortSignal;
   },
 ): Promise<{
   content: T;
@@ -518,6 +566,7 @@ export async function callAIWithObjectResponse<T>(
 }> {
   const response = await callAI(messages, modelConfig, {
     deepThink: options?.deepThink,
+    abortSignal: options?.abortSignal,
   });
   assert(response, 'empty response');
   const modelFamily = modelConfig.modelFamily;
@@ -540,8 +589,13 @@ export async function callAIWithObjectResponse<T>(
 export async function callAIWithStringResponse(
   msgs: AIArgs,
   modelConfig: IModelConfig,
+  options?: {
+    abortSignal?: AbortSignal;
+  },
 ): Promise<{ content: string; usage?: AIUsageInfo }> {
-  const { content, usage } = await callAI(msgs, modelConfig);
+  const { content, usage } = await callAI(msgs, modelConfig, {
+    abortSignal: options?.abortSignal,
+  });
   return { content, usage };
 }
 
@@ -649,16 +703,18 @@ export function resolveReasoningConfig({
     // reasoningEffort and reasoningBudget are ignored for glm-v
   } else if (modelFamily === 'gpt-5') {
     // reasoningEffort → reasoning.effort
-    if (reasoningEffort) {
-      config.reasoning = { effort: reasoningEffort };
-      debugMessages.push(`reasoning.effort="${reasoningEffort}"`);
-    } else if (reasoningEnabled === true) {
-      config.reasoning = { effort: 'high' };
-      debugMessages.push('reasoning.effort="high" (from reasoningEnabled)');
-    } else if (reasoningEnabled === false) {
-      config.reasoning = { effort: 'low' };
-      debugMessages.push('reasoning.effort="low" (from reasoningEnabled)');
-    }
+    config.reasoning = undefined;
+    debugMessages.push('reasoning config is ignored for gpt-5');
+    // if (reasoningEffort) {
+    //   config.reasoning = { effort: reasoningEffort };
+    //   debugMessages.push(`reasoning.effort="${reasoningEffort}"`);
+    // } else if (reasoningEnabled === true) {
+    //   config.reasoning = { effort: 'high' };
+    //   debugMessages.push('reasoning.effort="high" (from reasoningEnabled)');
+    // } else if (reasoningEnabled === false) {
+    //   config.reasoning = { effort: 'low' };
+    //   debugMessages.push('reasoning.effort="low" (from reasoningEnabled)');
+    // }
     // reasoningBudget is ignored for gpt-5
   } else if (!modelFamily) {
     return {

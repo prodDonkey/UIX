@@ -142,6 +142,7 @@ export type AiActOptions = {
   fileChooserAccept?: string | string[];
   deepThink?: DeepThinkOption;
   deepLocate?: boolean;
+  abortSignal?: AbortSignal;
 };
 
 export class Agent<
@@ -787,6 +788,13 @@ export class Agent<
       ? this.normalizeFileInput(opt.fileChooserAccept)
       : undefined;
 
+    const abortSignal = opt?.abortSignal;
+    if (abortSignal?.aborted) {
+      throw new Error(
+        `aiAct aborted: ${abortSignal.reason || 'signal already aborted'}`,
+      );
+    }
+
     const runAiAct = async () => {
       const modelConfigForPlanning =
         this.modelConfigManager.getModelConfig('planning');
@@ -859,6 +867,7 @@ export class Agent<
         deepThink,
         fileChooserAccept,
         includeBboxInPlanning ? undefined : deepLocate,
+        abortSignal,
       );
 
       // update cache
@@ -1255,12 +1264,8 @@ export class Agent<
     // Wait for all queued write operations to complete
     await this.reportGenerator.flush();
 
-    const hasExecutionDump =
-      Array.isArray(this.dump?.executions) && this.dump.executions.length > 0;
-    if (hasExecutionDump || !this.reportFile) {
-      await this.reportGenerator.finalize(this.dump);
-      this.reportFile = this.reportGenerator.getReportPath();
-    }
+    await this.reportGenerator.finalize(this.dump);
+    this.reportFile = this.reportGenerator.getReportPath();
 
     await this.interface.destroy?.();
     this.resetDump(); // reset dump to release memory

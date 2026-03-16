@@ -67,6 +67,7 @@ interface TaskBuilderDeps {
 interface BuildOptions {
   cacheable?: boolean;
   deepLocate?: boolean;
+  abortSignal?: AbortSignal;
 }
 
 interface PlanBuildContext {
@@ -75,6 +76,7 @@ interface PlanBuildContext {
   modelConfigForDefaultIntent: IModelConfig;
   cacheable?: boolean;
   deepLocate?: boolean;
+  abortSignal?: AbortSignal;
 }
 
 export class TaskBuilder {
@@ -117,6 +119,7 @@ export class TaskBuilder {
       modelConfigForDefaultIntent,
       cacheable,
       deepLocate: options?.deepLocate,
+      abortSignal: options?.abortSignal,
     };
 
     type PlanHandler = (plan: PlanningAction) => Promise<void> | void;
@@ -154,8 +157,7 @@ export class TaskBuilder {
       type: 'Action Space',
       subType: 'Finished',
       param: null,
-      // 优先使用 AI 返回的 log，作为前端实时进度文案。
-      thought: plan.log || plan.thought,
+      thought: plan.thought,
       executor: async () => {},
     };
     context.tasks.push(taskActionFinished);
@@ -228,8 +230,7 @@ export class TaskBuilder {
     > = {
       type: 'Action Space',
       subType: planType,
-      // 优先使用 AI 返回的 log，作为前端实时进度文案。
-      thought: plan.log || plan.thought,
+      thought: plan.thought,
       param: plan.param,
       executor: async (param, taskContext) => {
         const timing = taskContext.task.timing;
@@ -349,7 +350,8 @@ export class TaskBuilder {
     context: PlanBuildContext,
     onResult?: (result: LocateResultElement) => void,
   ): ExecutionTaskPlanningLocateApply {
-    const { cacheable, modelConfigForDefaultIntent, deepLocate } = context;
+    const { cacheable, modelConfigForDefaultIntent, deepLocate, abortSignal } =
+      context;
 
     let locateParam = detailedLocateParam;
 
@@ -377,8 +379,7 @@ export class TaskBuilder {
       type: 'Planning',
       subType: 'Locate',
       param: locateParam,
-      // 优先使用 AI 返回的 log，作为前端实时进度文案。
-      thought: plan.log || plan.thought,
+      thought: plan.thought,
       executor: async (param, taskContext) => {
         const { task } = taskContext;
         let { uiContext } = taskContext;
@@ -500,6 +501,7 @@ export class TaskBuilder {
                 context: uiContext,
               },
               modelConfigForDefaultIntent,
+              abortSignal,
             );
             applyDump(locateResult.dump);
             elementFromAiLocate = locateResult.element;
