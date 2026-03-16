@@ -216,6 +216,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { sceneApi } from '../api/scenes';
 import { runApi, type Run, type RunReport } from '../api/runs';
 import { scriptApi, type Script } from '../api/scripts';
+import { getAndroidPlaygroundUrl } from '../config/runtime';
 import { formatServerDateTime } from '../utils/datetime';
 
 const route = useRoute();
@@ -295,9 +296,7 @@ const canCancel = computed(
     !!run.value?.request_id,
 );
 const canRerun = computed(() => !isCancelling.value && !isRerunning.value && !!run.value && !canCancel.value);
-const androidPlaygroundBaseUrl = (
-  import.meta.env.VITE_ANDROID_PLAYGROUND_URL || 'http://localhost:5800'
-).replace(/\/+$/, '');
+const androidPlaygroundBaseUrl = getAndroidPlaygroundUrl().replace(/\/+$/, '');
 
 function normalizeLoopbackUrl(rawUrl: string): string {
   if (!rawUrl) return rawUrl;
