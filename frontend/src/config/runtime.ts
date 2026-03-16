@@ -12,7 +12,9 @@ function readRuntimeConfig(): RuntimeConfig {
 
 export function getApiBaseUrl(): string {
   const runtimeConfig = readRuntimeConfig();
-  return runtimeConfig.API_BASE_URL || import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+  if (runtimeConfig.API_BASE_URL !== undefined) return runtimeConfig.API_BASE_URL;
+  if (import.meta.env.VITE_API_BASE_URL !== undefined) return import.meta.env.VITE_API_BASE_URL;
+  return 'http://127.0.0.1:8000';
 }
 
 export function getAndroidPlaygroundUrl(): string {
