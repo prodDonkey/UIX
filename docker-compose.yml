@@ -4,7 +4,7 @@ services:
       context: ./backend
     environment:
       APP_ENV: docker
-      DATABASE_URL: ${DATABASE_URL:-sqlite:////app/data/app.db}
+      DATABASE_URL: ${DATABASE_URL:-mysql+pymysql://root:password@host.docker.internal:3306/ui_demo?charset=utf8mb4}
       MIDSCENE_BASE_URL: ${MIDSCENE_BASE_URL:-http://host.docker.internal:5800}
       MIDSCENE_TIMEOUT_SEC: ${MIDSCENE_TIMEOUT_SEC:-10}
       MIDSCENE_STATUS_POLL_INTERVAL_MS: ${MIDSCENE_STATUS_POLL_INTERVAL_MS:-2000}

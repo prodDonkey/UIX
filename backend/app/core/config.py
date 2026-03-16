@@ -8,7 +8,7 @@ BACKEND_ROOT = Path(__file__).resolve().parents[2]
 class Settings(BaseSettings):
     app_name: str = "UI自动化脚本 API"
     app_env: str = "dev"
-    database_url: str = "sqlite:///./app.db"
+    database_url: str = "mysql+pymysql://root:password@localhost:3306/ui_demo?charset=utf8mb4"
     run_scripts_dir: str = "./runtime/scripts"
     run_command_prefix: str = "npx midscene"
     midscene_base_url: str = "http://localhost:5800"
