@@ -6,6 +6,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { SCRCPY_SERVER_PORT } from '@midscene/shared/constants';
+import {
+  MIDSCENE_ADB_PATH,
+  MIDSCENE_ADB_REMOTE_HOST,
+  MIDSCENE_ADB_REMOTE_PORT,
+  globalConfigManager,
+} from '@midscene/shared/env';
 import { getDebug } from '@midscene/shared/logger';
 import type { Adb, AdbServerClient } from '@yume-chan/adb';
 import cors from 'cors';
@@ -180,13 +186,28 @@ export default class ScrcpyServer {
     );
     try {
       if (!this.adbClient) {
-        await promiseExec('adb start-server'); // make sure adb server is running
+        const adbPath =
+          globalConfigManager.getEnvConfigValue(MIDSCENE_ADB_PATH);
+        const remoteAdbHost =
+          globalConfigManager.getEnvConfigValue(MIDSCENE_ADB_REMOTE_HOST) ||
+          '127.0.0.1';
+        const remoteAdbPort = Number(
+          globalConfigManager.getEnvConfigValue(MIDSCENE_ADB_REMOTE_PORT) ||
+            '5037',
+        );
+
+        const shouldListenOnAllInterfaces =
+          remoteAdbHost !== '127.0.0.1' && remoteAdbHost !== 'localhost';
+        const adbStartCommand = adbPath
+          ? `"${adbPath}" ${shouldListenOnAllInterfaces ? '-a ' : ''}start-server`
+          : `adb ${shouldListenOnAllInterfaces ? '-a ' : ''}start-server`;
+        await promiseExec(adbStartCommand); // make sure adb server is running
         debugPage('adb server started');
         debugPage('initialize adb client');
         this.adbClient = new AdbServerClient(
           new AdbServerNodeTcpConnector({
-            host: '127.0.0.1',
-            port: 5037,
+            host: remoteAdbHost,
+            port: remoteAdbPort,
           }),
         );
         await debugPage('success to initialize adb client');

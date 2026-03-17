@@ -4,6 +4,11 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ANDROID_ROOT="${ROOT_DIR}/android-playground"
 ANDROID_PKG_DIR="${ANDROID_ROOT}/packages/android-playground"
 HOST_IP=10.238.15.91
+WSL_GATEWAY_IP=
+
+if grep -qi microsoft /proc/version 2>/dev/null; then
+  WSL_GATEWAY_IP="$(ip route 2>/dev/null | awk '/default/ {print $3; exit}')"
+fi
 
 if [ -z "${ANDROID_HOME:-}" ] && [ -d "/mnt/c/Android" ]; then
   export ANDROID_HOME="/mnt/c/Android"
@@ -29,13 +34,28 @@ if [ -z "${MIDSCENE_ADB_PATH:-}" ] && [ -f "${ANDROID_HOME:-}/platform-tools/adb
   export MIDSCENE_ADB_PATH="${ANDROID_HOME}/platform-tools/adb.exe"
 fi
 
+if [ -z "${MIDSCENE_ADB_REMOTE_HOST:-}" ] && [ -n "${WSL_GATEWAY_IP}" ]; then
+  export MIDSCENE_ADB_REMOTE_HOST="${WSL_GATEWAY_IP}"
+fi
+
+if [ -z "${MIDSCENE_ADB_REMOTE_PORT:-}" ]; then
+  export MIDSCENE_ADB_REMOTE_PORT="5037"
+fi
+
 cd "${ANDROID_ROOT}" || exit
 
 echo "🚀 starting android-playground..."
 echo "🌐 playground url: http://${HOST_IP}:5800"
+if [ -n "${MIDSCENE_ADB_REMOTE_HOST:-}" ]; then
+  echo "📱 adb server: ${MIDSCENE_ADB_REMOTE_HOST}:${MIDSCENE_ADB_REMOTE_PORT}"
+fi
 
 if [ -n "${MIDSCENE_ADB_PATH:-}" ]; then
-  "${MIDSCENE_ADB_PATH}" start-server >/dev/null 2>&1 || true
+  if [ -n "${MIDSCENE_ADB_REMOTE_HOST:-}" ] && [ "${MIDSCENE_ADB_REMOTE_HOST}" != "127.0.0.1" ] && [ "${MIDSCENE_ADB_REMOTE_HOST}" != "localhost" ]; then
+    "${MIDSCENE_ADB_PATH}" -a start-server >/dev/null 2>&1 || true
+  else
+    "${MIDSCENE_ADB_PATH}" start-server >/dev/null 2>&1 || true
+  fi
 fi
 
 # 自动安装依赖
