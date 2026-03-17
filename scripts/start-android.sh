@@ -85,12 +85,14 @@ fi
 
 while true
 do
-  echo "🔨 rebuilding android-playground UI/shared/core/playground/android/android-playground..."
-  corepack pnpm --dir apps/android-playground build || exit 1
+  echo "🔨 rebuilding shared/core/playground/web/visualizer/android/android-playground UI..."
   corepack pnpm --filter @midscene/shared build || exit 1
   corepack pnpm --filter @midscene/core build || exit 1
   corepack pnpm --filter @midscene/playground build || exit 1
+  corepack pnpm --filter @midscene/web build || exit 1
+  corepack pnpm --filter @midscene/visualizer build || exit 1
   corepack pnpm --filter @midscene/android build || exit 1
+  corepack pnpm --dir apps/android-playground build || exit 1
   corepack pnpm --filter @midscene/android-playground build || exit 1
 
   cd "${ANDROID_PKG_DIR}" || exit
