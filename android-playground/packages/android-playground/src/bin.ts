@@ -76,7 +76,10 @@ function resolveStaticDir() {
     return packagedStaticDir;
   }
 
-  const appDistDir = path.join(__dirname, '../../../apps/android-playground/dist');
+  const appDistDir = path.join(
+    __dirname,
+    '../../../../apps/android-playground/dist',
+  );
   if (fs.existsSync(path.join(appDistDir, 'index.html'))) {
     console.log(`📦 Using app dist as static assets: ${appDistDir}`);
     return appDistDir;

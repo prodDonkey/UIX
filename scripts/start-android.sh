@@ -3,11 +3,30 @@
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ANDROID_ROOT="${ROOT_DIR}/android-playground"
 ANDROID_PKG_DIR="${ANDROID_ROOT}/packages/android-playground"
-HOST_IP=10.238.15.91
+HOST_IP=
 WSL_GATEWAY_IP=
 
 if grep -qi microsoft /proc/version 2>/dev/null; then
   WSL_GATEWAY_IP="$(ip route 2>/dev/null | awk '/default/ {print $3; exit}')"
+fi
+
+if [ -z "${HOST_IP}" ] && [ -x "/mnt/c/Windows/System32/ipconfig.exe" ]; then
+  HOST_IP="$(
+    /mnt/c/Windows/System32/ipconfig.exe 2>/dev/null |
+      tr -d '\r' |
+      grep -E 'IPv4|IPv4 地址' |
+      grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' |
+      grep -v '^172\.' |
+      head -n 1
+  )"
+fi
+
+if [ -z "${HOST_IP}" ] && [ -n "${WSL_GATEWAY_IP}" ]; then
+  HOST_IP="${WSL_GATEWAY_IP}"
+fi
+
+if [ -z "${HOST_IP}" ]; then
+  HOST_IP="127.0.0.1"
 fi
 
 if [ -z "${ANDROID_HOME:-}" ] && [ -d "/mnt/c/Android" ]; then
@@ -66,7 +85,8 @@ fi
 
 while true
 do
-  echo "🔨 rebuilding shared/core/playground/android/android-playground..."
+  echo "🔨 rebuilding android-playground UI/shared/core/playground/android/android-playground..."
+  corepack pnpm --dir apps/android-playground build || exit 1
   corepack pnpm --filter @midscene/shared build || exit 1
   corepack pnpm --filter @midscene/core build || exit 1
   corepack pnpm --filter @midscene/playground build || exit 1
