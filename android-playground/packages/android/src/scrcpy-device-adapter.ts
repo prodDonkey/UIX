@@ -1,4 +1,9 @@
 import type { Size } from '@midscene/core';
+import {
+  MIDSCENE_ADB_REMOTE_HOST,
+  MIDSCENE_ADB_REMOTE_PORT,
+  globalConfigManager,
+} from '@midscene/shared/env';
 import { createImgBase64ByFormat } from '@midscene/shared/img';
 import { getDebug } from '@midscene/shared/logger';
 import type { ScrcpyScreenshotManager } from './scrcpy-manager';
@@ -107,9 +112,19 @@ export class ScrcpyDeviceAdapter {
       const { ScrcpyScreenshotManager: ScrcpyManager } = await import(
         './scrcpy-manager'
       );
+      const remoteAdbHost =
+        globalConfigManager.getEnvConfigValue(MIDSCENE_ADB_REMOTE_HOST) ||
+        '127.0.0.1';
+      const remoteAdbPort = Number(
+        globalConfigManager.getEnvConfigValue(MIDSCENE_ADB_REMOTE_PORT) ||
+          '5037',
+      );
 
       const adbClient = new AdbServerClient(
-        new AdbServerNodeTcpConnector({ host: '127.0.0.1', port: 5037 }),
+        new AdbServerNodeTcpConnector({
+          host: remoteAdbHost,
+          port: remoteAdbPort,
+        }),
       );
       const adb = new Adb(
         await adbClient.createTransport({ serial: this.deviceId }),

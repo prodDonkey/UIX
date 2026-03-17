@@ -1,6 +1,12 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {
+  MIDSCENE_ADB_PATH,
+  MIDSCENE_ADB_REMOTE_HOST,
+  MIDSCENE_ADB_REMOTE_PORT,
+  globalConfigManager,
+} from '@midscene/shared/env';
 import { getDebug } from '@midscene/shared/logger';
 import { ADB, type Device } from 'appium-adb';
 
@@ -34,8 +40,18 @@ function ensureAndroidSdkEnv() {
 export async function getConnectedDevices(): Promise<Device[]> {
   try {
     ensureAndroidSdkEnv();
+    const adbPath = globalConfigManager.getEnvConfigValue(MIDSCENE_ADB_PATH);
+    const remoteAdbHost = globalConfigManager.getEnvConfigValue(
+      MIDSCENE_ADB_REMOTE_HOST,
+    );
+    const remoteAdbPort = globalConfigManager.getEnvConfigValue(
+      MIDSCENE_ADB_REMOTE_PORT,
+    );
     const adb = await ADB.createADB({
       adbExecTimeout: 60000,
+      executable: adbPath ? { path: adbPath, defaultArgs: [] } : undefined,
+      remoteAdbHost: remoteAdbHost || undefined,
+      remoteAdbPort: remoteAdbPort ? Number(remoteAdbPort) : undefined,
     });
     const devices = await adb.getConnectedDevices();
 

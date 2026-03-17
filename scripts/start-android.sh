@@ -5,10 +5,38 @@ ANDROID_ROOT="${ROOT_DIR}/android-playground"
 ANDROID_PKG_DIR="${ANDROID_ROOT}/packages/android-playground"
 HOST_IP=10.238.15.91
 
+if [ -z "${ANDROID_HOME:-}" ] && [ -d "/mnt/c/Android" ]; then
+  export ANDROID_HOME="/mnt/c/Android"
+fi
+
+if [ -z "${ANDROID_SDK_ROOT:-}" ] && [ -n "${ANDROID_HOME:-}" ]; then
+  export ANDROID_SDK_ROOT="${ANDROID_HOME}"
+fi
+
+if [ -n "${ANDROID_HOME:-}" ]; then
+  export PATH="${ANDROID_HOME}/platform-tools:${ANDROID_HOME}/cmdline-tools/latest/bin:${PATH}"
+fi
+
+if [ -n "${ANDROID_HOME:-}" ] && [ -f "${ANDROID_HOME}/platform-tools/adb.exe" ] && [ ! -e "${ANDROID_HOME}/platform-tools/adb" ]; then
+  cat > "${ANDROID_HOME}/platform-tools/adb" <<'EOF'
+#!/bin/sh
+exec "$(dirname "$0")/adb.exe" "$@"
+EOF
+  chmod +x "${ANDROID_HOME}/platform-tools/adb"
+fi
+
+if [ -z "${MIDSCENE_ADB_PATH:-}" ] && [ -f "${ANDROID_HOME:-}/platform-tools/adb.exe" ]; then
+  export MIDSCENE_ADB_PATH="${ANDROID_HOME}/platform-tools/adb.exe"
+fi
+
 cd "${ANDROID_ROOT}" || exit
 
 echo "🚀 starting android-playground..."
 echo "🌐 playground url: http://${HOST_IP}:5800"
+
+if [ -n "${MIDSCENE_ADB_PATH:-}" ]; then
+  "${MIDSCENE_ADB_PATH}" start-server >/dev/null 2>&1 || true
+fi
 
 # 自动安装依赖
 if [ ! -d "node_modules" ]; then
