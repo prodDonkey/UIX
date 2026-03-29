@@ -37,7 +37,7 @@ services:
     build:
       context: ./frontend
     environment:
-      API_BASE_URL: ${API_BASE_URL:-/api}
+      API_BASE_URL: ${API_BASE_URL:-}
       ANDROID_PLAYGROUND_URL: ${ANDROID_PLAYGROUND_URL:-http://localhost:5800}
     depends_on:
       backend:

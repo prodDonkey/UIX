@@ -37,3 +37,4 @@ docker compose --profile runner up -d --build
 - 默认使用 SQLite，数据落在 `backend_data` volume。
 - `midscene_report` volume 用于保留报告产物。
 - `frontend` 通过运行时生成 `app-config.js`，所以修改 `.env` 后只需重启前端容器，不必重新构建前端镜像。
+- 使用内置 Nginx 反向代理时，`API_BASE_URL` 保持为空即可；前端请求会直接走同源 `/api/...`。
