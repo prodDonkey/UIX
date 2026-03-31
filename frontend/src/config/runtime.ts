@@ -1,6 +1,5 @@
 type RuntimeConfig = {
   API_BASE_URL?: string;
-  ANDROID_PLAYGROUND_URL?: string;
 };
 
 function readRuntimeConfig(): RuntimeConfig {
@@ -15,13 +14,4 @@ export function getApiBaseUrl(): string {
   if (runtimeConfig.API_BASE_URL !== undefined) return runtimeConfig.API_BASE_URL;
   if (import.meta.env.VITE_API_BASE_URL !== undefined) return import.meta.env.VITE_API_BASE_URL;
   return 'http://127.0.0.1:8000';
-}
-
-export function getAndroidPlaygroundUrl(): string {
-  const runtimeConfig = readRuntimeConfig();
-  return (
-    runtimeConfig.ANDROID_PLAYGROUND_URL ||
-    import.meta.env.VITE_ANDROID_PLAYGROUND_URL ||
-    'http://localhost:5800'
-  );
 }

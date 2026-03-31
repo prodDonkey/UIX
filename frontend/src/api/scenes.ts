@@ -52,10 +52,6 @@ export type SceneCompiledScript = {
   yaml: string;
 };
 
-export type SceneRunCreateResult = {
-  run_id: number;
-};
-
 export type SceneTaskSyncResult = {
   updated_count: number;
   missing_count: number;
@@ -145,10 +141,6 @@ export const sceneApi = {
   },
   async getCompiledScript(sceneId: number): Promise<SceneCompiledScript> {
     const { data } = await http.get(`/api/scenes/${sceneId}/compiled-script`);
-    return data;
-  },
-  async runScene(sceneId: number): Promise<SceneRunCreateResult> {
-    const { data } = await http.post(`/api/scenes/${sceneId}/runs`);
     return data;
   },
 };

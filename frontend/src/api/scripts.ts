@@ -1,7 +1,5 @@
 import { http } from './client';
 
-const GENERATE_TIMEOUT_MS = 90_000;
-
 export type Script = {
   id: number;
   name: string;
@@ -18,18 +16,6 @@ export type ValidateResult = {
   line?: number;
   column?: number;
   message?: string;
-};
-
-export type GenerateScriptPayload = {
-  prompt: string;
-  device_id?: string;
-  language?: 'zh' | 'en';
-  model?: string;
-};
-
-export type GenerateScriptResult = {
-  yaml: string;
-  warnings: string[];
 };
 
 export const scriptApi = {
@@ -58,12 +44,6 @@ export const scriptApi = {
   },
   async validate(id: number, content: string): Promise<ValidateResult> {
     const { data } = await http.post(`/api/scripts/${id}/validate`, { content });
-    return data;
-  },
-  async generate(payload: GenerateScriptPayload): Promise<GenerateScriptResult> {
-    const { data } = await http.post('/api/scripts/generate', payload, {
-      timeout: GENERATE_TIMEOUT_MS,
-    });
     return data;
   },
 };

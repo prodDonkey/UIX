@@ -32,7 +32,6 @@ from app.services.scene_compiler import (
     scene_task_sync_status,
     task_snapshot_key,
 )
-from app.services.run_service import create_scene_run, start_run_async
 
 router = APIRouter(prefix="/api/scenes", tags=["scenes"])
 
@@ -529,15 +528,3 @@ def sync_scene_task_items(scene_id: int, db: Session = Depends(get_db)) -> Scene
 def get_scene_compiled_script(scene_id: int, db: Session = Depends(get_db)) -> SceneCompiledScriptRead:
     scene = _get_scene_or_404(db, scene_id)
     return _compiled_scene_script(db, scene)
-
-
-@router.post("/{scene_id}/runs", status_code=status.HTTP_201_CREATED)
-def create_scene_run_task(scene_id: int, db: Session = Depends(get_db)) -> dict:
-    try:
-        run = create_scene_run(db, scene_id)
-    except ValueError as exc:
-        detail = str(exc)
-        status_code = status.HTTP_404_NOT_FOUND if detail in {"Scene not found"} else status.HTTP_400_BAD_REQUEST
-        raise HTTPException(status_code=status_code, detail=detail) from exc
-    start_run_async(run.id)
-    return {"run_id": run.id}

@@ -11,9 +11,6 @@
             <el-button @click="goBack">返回列表</el-button>
             <el-button @click="copyCurrentScene">复制场景</el-button>
             <el-button @click="showPicker = true">添加脚本</el-button>
-            <el-button type="success" plain :disabled="taskItems.length === 0" @click="runScene">
-              执行整个场景
-            </el-button>
             <el-button type="primary" @click="save">保存</el-button>
           </div>
         </div>
@@ -77,7 +74,6 @@
         </el-table-column>
         <el-table-column label="操作" width="250" fixed="right">
           <template #default="{ row, $index }">
-            <el-button size="small" type="success" plain @click="runScript(row.script_id)">运行</el-button>
             <el-button size="small" :disabled="$index === 0" @click="moveRelation($index, -1)">上移</el-button>
             <el-button size="small" :disabled="$index === relations.length - 1" @click="moveRelation($index, 1)">下移</el-button>
             <el-button size="small" type="danger" @click="removeRelation(row.id)">移除</el-button>
@@ -242,7 +238,6 @@ import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import { sceneApi, type SceneScriptRelation, type SceneTaskItem, type ScriptTask } from '../api/scenes';
-import { runApi } from '../api/runs';
 import { scriptApi, type Script } from '../api/scripts';
 import SceneScriptPicker from '../components/SceneScriptPicker.vue';
 import { formatServerDateTime } from '../utils/datetime';
@@ -547,22 +542,10 @@ async function copyCurrentScene() {
   await router.push({ name: 'scene-detail', params: { id: copied.id } });
 }
 
-async function runScript(scriptId: number) {
-  const run = await runApi.create(scriptId);
-  ElMessage.success(`任务已创建 #${run.id}`);
-  await router.push({ name: 'run-detail', params: { id: run.id } });
-}
-
 async function previewCompiledScript() {
   const compiled = await sceneApi.getCompiledScript(sceneId.value);
   compiledYaml.value = compiled.yaml;
   compiledPreviewVisible.value = true;
-}
-
-async function runScene() {
-  const created = await sceneApi.runScene(sceneId.value);
-  ElMessage.success(`场景任务已创建 #${created.run_id}`);
-  await router.push({ name: 'run-detail', params: { id: created.run_id } });
 }
 
 function goBack() {
@@ -575,7 +558,6 @@ function goScript(scriptId: number) {
 
 function formatSourceType(sourceType: string) {
   if (sourceType === 'manual') return '手动';
-  if (sourceType === 'ai') return 'AI生成';
   return sourceType || '-';
 }
 

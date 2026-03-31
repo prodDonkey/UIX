@@ -8,7 +8,6 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.api.runs import router as runs_router
 from app.api.scenes import router as scenes_router
 from app.api.scripts import router as scripts_router
 from app.core.database import Base, get_db
@@ -23,7 +22,6 @@ def _build_test_client(tmp_path: Path) -> TestClient:
     app = FastAPI()
     app.include_router(scripts_router)
     app.include_router(scenes_router)
-    app.include_router(runs_router)
 
     def override_get_db() -> Generator[Session, None, None]:
         db = testing_session_local()
@@ -202,57 +200,6 @@ def test_scene_task_items_and_compiled_script(tmp_path: Path) -> None:
     item_list = client.get(f"/api/scenes/{scene_id}/task-items")
     assert item_list.status_code == 200
     assert len(item_list.json()) == 1
-
-
-def test_scene_run_creates_run_with_compiled_snapshot(tmp_path: Path, monkeypatch) -> None:
-    client = _build_test_client(tmp_path)
-    monkeypatch.setattr("app.api.scenes.start_run_async", lambda run_id: None)
-
-    script_response = client.post(
-        "/api/scripts",
-        json={
-            "name": "回收脚本",
-            "content": (
-                "android:\n"
-                "  deviceId: ''\n"
-                "tasks:\n"
-                "  - name: 前往服务\n"
-                "    flow:\n"
-                "      - aiAction: 点击待上门订单\n"
-            ),
-            "source_type": "manual",
-        },
-    )
-    assert script_response.status_code == 201
-    script_id = script_response.json()["id"]
-
-    scene_response = client.post(
-        "/api/scenes",
-        json={"name": "回收一段流程", "description": "场景执行", "source_type": "manual"},
-    )
-    assert scene_response.status_code == 201
-    scene_id = scene_response.json()["id"]
-
-    bind_response = client.post(f"/api/scenes/{scene_id}/scripts", json={"script_id": script_id, "remark": "来源脚本"})
-    assert bind_response.status_code == 201
-
-    add_task = client.post(
-        f"/api/scenes/{scene_id}/task-items",
-        json={"script_id": script_id, "task_index": 0, "remark": "执行 task"},
-    )
-    assert add_task.status_code == 201
-
-    created_run = client.post(f"/api/scenes/{scene_id}/runs")
-    assert created_run.status_code == 201
-    run_id = created_run.json()["run_id"]
-
-    run_detail = client.get(f"/api/runs/{run_id}")
-    assert run_detail.status_code == 200
-    payload = run_detail.json()
-    assert payload["scene_id"] == scene_id
-    assert payload["scene_name_snapshot"] == "回收一段流程"
-    assert payload["script_id"] == script_id
-    assert "name: 前往服务" in payload["script_content_snapshot"]
 
 
 def test_scene_task_items_detect_and_sync_script_changes(tmp_path: Path) -> None:
