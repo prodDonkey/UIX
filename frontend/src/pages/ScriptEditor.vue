@@ -8,7 +8,6 @@
         </div>
         <div class="actions">
           <el-button @click="goBack">返回列表</el-button>
-          <el-button @click="validate">校验</el-button>
           <el-button type="primary" @click="save">保存</el-button>
         </div>
       </div>
@@ -40,14 +39,6 @@
     </el-form>
 
     <YamlEditor v-model="content" />
-
-    <el-alert
-      v-if="validateMessage"
-      :title="validateMessage"
-      :type="validateOk ? 'success' : 'error'"
-      show-icon
-      class="alert"
-    />
   </el-card>
 </template>
 
@@ -67,8 +58,6 @@ const name = ref('');
 const sourceType = ref('manual');
 const content = ref('');
 const sceneReferences = ref<Array<{ id: number; name: string }>>([]);
-const validateMessage = ref('');
-const validateOk = ref(false);
 
 onMounted(async () => {
   if (Number.isNaN(scriptId.value) || scriptId.value <= 0) {
@@ -90,14 +79,6 @@ async function save() {
     content: content.value,
   });
   ElMessage.success('保存成功');
-}
-
-async function validate() {
-  const result = await scriptApi.validate(scriptId.value, content.value);
-  validateOk.value = result.valid;
-  validateMessage.value = result.valid
-    ? 'YAML 校验通过'
-    : `校验失败：${result.message ?? 'unknown error'}${result.line ? ` (line ${result.line})` : ''}`;
 }
 
 async function goBack() {
@@ -133,8 +114,5 @@ function goScene(sceneId: number) {
 }
 .scene-tag {
   cursor: pointer;
-}
-.alert {
-  margin-top: 12px;
 }
 </style>

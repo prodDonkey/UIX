@@ -11,13 +11,6 @@ export type Script = {
   scenes?: Array<{ id: number; name: string }>;
 };
 
-export type ValidateResult = {
-  valid: boolean;
-  line?: number;
-  column?: number;
-  message?: string;
-};
-
 export const scriptApi = {
   async list(): Promise<Script[]> {
     const { data } = await http.get('/api/scripts');
@@ -40,10 +33,6 @@ export const scriptApi = {
   },
   async copy(id: number): Promise<Script> {
     const { data } = await http.post(`/api/scripts/${id}/copy`);
-    return data;
-  },
-  async validate(id: number, content: string): Promise<ValidateResult> {
-    const { data } = await http.post(`/api/scripts/${id}/validate`, { content });
     return data;
   },
 };

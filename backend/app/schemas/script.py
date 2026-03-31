@@ -33,14 +33,3 @@ class ScriptRead(ScriptBase):
 
     class Config:
         from_attributes = True
-
-
-class ScriptValidateRequest(BaseModel):
-    content: str = Field(min_length=1)
-
-
-class ScriptValidateResponse(BaseModel):
-    valid: bool
-    line: int | None = None
-    column: int | None = None
-    message: str | None = None
