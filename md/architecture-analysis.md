@@ -165,7 +165,7 @@ flowchart LR
     FE --> BE[Backend FastAPI]
     FE --> AP[Android Playground UI/Embed]
 
-    BE --> DB[(MySQL / SQLite)]
+    BE --> DB[(MySQL)]
     BE --> LLM[LLM API]
     BE --> MS[Midscene / Android Playground HTTP 服务]
 
@@ -538,7 +538,7 @@ flowchart TD
 
 特征：
 
-- SQLite 与 MySQL 分支处理
+- MySQL 连接池参数
 - MySQL 场景有连接池参数
 - 通过 `get_db()` 提供 request-scoped Session
 

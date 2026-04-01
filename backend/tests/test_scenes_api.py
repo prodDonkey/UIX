@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Generator
-from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -13,11 +13,11 @@ from app.api.scripts import router as scripts_router
 from app.core.database import Base, get_db
 
 
-def _build_test_client(tmp_path: Path) -> TestClient:
-    db_file = tmp_path / "test-scenes.db"
-    engine = create_engine(f"sqlite:///{db_file}", connect_args={"check_same_thread": False})
-    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+def _build_test_client() -> TestClient:
+    engine = create_engine(os.environ["TEST_DATABASE_URL"], pool_pre_ping=True)
+    Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
     app = FastAPI()
     app.include_router(scripts_router)
@@ -34,8 +34,8 @@ def _build_test_client(tmp_path: Path) -> TestClient:
     return TestClient(app)
 
 
-def test_scene_crud_and_script_binding(tmp_path: Path) -> None:
-    client = _build_test_client(tmp_path)
+def test_scene_crud_and_script_binding() -> None:
+    client = _build_test_client()
 
     first_script = client.post(
         "/api/scripts",
@@ -119,8 +119,8 @@ def test_scene_crud_and_script_binding(tmp_path: Path) -> None:
     assert script_still_exists.status_code == 200
 
 
-def test_scene_task_items_and_compiled_script(tmp_path: Path) -> None:
-    client = _build_test_client(tmp_path)
+def test_scene_task_items_and_compiled_script() -> None:
+    client = _build_test_client()
 
     script_response = client.post(
         "/api/scripts",
@@ -202,8 +202,8 @@ def test_scene_task_items_and_compiled_script(tmp_path: Path) -> None:
     assert len(item_list.json()) == 1
 
 
-def test_scene_task_items_detect_and_sync_script_changes(tmp_path: Path) -> None:
-    client = _build_test_client(tmp_path)
+def test_scene_task_items_detect_and_sync_script_changes() -> None:
+    client = _build_test_client()
 
     script_response = client.post(
         "/api/scripts",
