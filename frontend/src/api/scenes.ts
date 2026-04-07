@@ -72,6 +72,17 @@ export type SceneTaskSyncResult = {
   task_items: SceneTaskItem[];
 };
 
+export type SceneExecuteResult = {
+  scene_id: number;
+  scene_name: string;
+  script_count: number;
+  task_count: number;
+  success: boolean;
+  message: string;
+  outputs: Record<string, unknown>;
+  detail?: Record<string, unknown> | string | null;
+};
+
 export type SceneDetail = Scene & {
   scripts: SceneScriptRelation[];
   task_items: SceneTaskItem[];
@@ -160,6 +171,10 @@ export const sceneApi = {
   },
   async getCompiledScript(sceneId: number): Promise<SceneCompiledScript> {
     const { data } = await http.get(`/api/scenes/${sceneId}/compiled-script`);
+    return data;
+  },
+  async execute(sceneId: number): Promise<SceneExecuteResult> {
+    const { data } = await http.post(`/api/scenes/${sceneId}/execute`);
     return data;
   },
 };

@@ -95,6 +95,14 @@
             >
               {{ syncingAllTasks ? '同步中...' : `同步全部变更${syncableTaskCount > 0 ? ` (${syncableTaskCount})` : ''}` }}
             </el-button>
+            <el-button
+              type="success"
+              :loading="executingScene"
+              :disabled="taskItems.length === 0"
+              @click="executeScene"
+            >
+              {{ executingScene ? '执行中...' : '执行场景' }}
+            </el-button>
             <el-button type="primary" plain :disabled="taskItems.length === 0" @click="previewCompiledScript">
               预览场景脚本
             </el-button>
@@ -235,6 +243,28 @@
     </el-dialog>
 
     <el-dialog
+      v-model="executeResultVisible"
+      width="min(760px, 92vw)"
+      destroy-on-close
+    >
+      <template #header>
+        <div class="dialog-header">
+          <strong>场景执行结果</strong>
+          <span class="dialog-desc">{{ executeResult?.scene_name || '-' }}</span>
+        </div>
+      </template>
+      <div v-if="executeResult" class="execute-result">
+        <div class="execute-result-line"><strong>消息：</strong>{{ executeResult.message }}</div>
+        <div class="execute-result-line"><strong>结果：</strong>{{ executeResult.success ? '成功' : '失败' }}</div>
+        <div class="execute-result-line"><strong>任务数：</strong>{{ executeResult.task_count }}</div>
+        <div class="execute-result-line" v-if="Object.keys(executeResult.outputs || {}).length > 0">
+          <strong>输出变量：</strong>{{ JSON.stringify(executeResult.outputs) }}
+        </div>
+        <pre v-if="executeResult.detail" class="compiled-preview"><code>{{ formatExecuteDetail(executeResult.detail) }}</code></pre>
+      </div>
+    </el-dialog>
+
+    <el-dialog
       v-model="variableDialogVisible"
       width="min(720px, 92vw)"
       destroy-on-close
@@ -280,6 +310,7 @@ import { useRoute, useRouter } from 'vue-router';
 
 import {
   sceneApi,
+  type SceneExecuteResult,
   type SceneScriptRelation,
   type SceneTaskInputBinding,
   type SceneTaskItem,
@@ -305,6 +336,9 @@ const scriptTasksMap = ref<Record<number, ScriptTask[]>>({});
 const scripts = ref<Script[]>([]);
 const compiledPreviewVisible = ref(false);
 const compiledYaml = ref('');
+const executeResultVisible = ref(false);
+const executeResult = ref<SceneExecuteResult | null>(null);
+const executingScene = ref(false);
 const variableDialogVisible = ref(false);
 const variableDialogTask = ref<SceneTaskItem | null>(null);
 const variableOutputsText = ref('[]');
@@ -642,6 +676,20 @@ async function previewCompiledScript() {
   compiledPreviewVisible.value = true;
 }
 
+async function executeScene() {
+  executingScene.value = true;
+  try {
+    const result = await sceneApi.execute(sceneId.value);
+    executeResult.value = result;
+    executeResultVisible.value = true;
+    ElMessage.success(result.message);
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.detail || '场景执行失败');
+  } finally {
+    executingScene.value = false;
+  }
+}
+
 function goBack() {
   router.push({ name: 'scenes-list' });
 }
@@ -667,6 +715,11 @@ function syncStatusTagType(status: string) {
   if (status === 'stale') return 'warning';
   if (status === 'missing') return 'danger';
   return 'info';
+}
+
+function formatExecuteDetail(detail: SceneExecuteResult['detail']) {
+  if (typeof detail === 'string') return detail;
+  return JSON.stringify(detail, null, 2);
 }
 </script>
 
@@ -852,6 +905,17 @@ function syncStatusTagType(status: string) {
   margin-top: 6px;
   color: #6b7280;
   font-size: 12px;
+}
+
+.execute-result {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.execute-result-line {
+  color: #374151;
+  line-height: 1.5;
 }
 
 .task-col-action {

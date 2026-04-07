@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Generator
-
+from types import SimpleNamespace
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -558,3 +558,120 @@ def test_script_level_interface_is_embedded_into_task_snapshot() -> None:
     compiled_yaml = compiled.json()["yaml"]
     assert "interface:" in compiled_yaml
     assert "url: https://datapt.zhuanspirit.com/api/basicdata/getresult" in compiled_yaml
+
+
+def test_execute_scene_runs_http_interface_tasks(monkeypatch) -> None:
+    client = _build_test_client()
+
+    script_response = client.post(
+        "/api/scripts",
+        json={
+            "name": "执行脚本",
+            "content": (
+                "interface:\n"
+                "  method: POST\n"
+                "  url: https://example.test/orders\n"
+                "  contentType: application/json\n"
+                "  headers:\n"
+                "    Authorization: Bearer demo-token\n"
+                "tasks:\n"
+                "  - name: 下单\n"
+                "    sceneVariables:\n"
+                "      outputs:\n"
+                "        - name: orderNo\n"
+                "          source_path: data.orderNo\n"
+                "    flow:\n"
+                "      - aiAction: 调用下单接口\n"
+                "  - name: 查询订单\n"
+                "    interface:\n"
+                "      method: POST\n"
+                "      url: https://example.test/query\n"
+                "      contentType: application/json\n"
+                "      params:\n"
+                "        orderNo: \"\"\n"
+                "    sceneVariables:\n"
+                "      inputs:\n"
+                "        - target_path: interface.params.orderNo\n"
+                "          expression: ${orderNo}\n"
+                "      outputs:\n"
+                "        - name: orderStatus\n"
+                "          source_path: data.status\n"
+                "    flow:\n"
+                "      - aiAction: 调用查询接口\n"
+            ),
+            "source_type": "manual",
+        },
+    )
+    assert script_response.status_code == 201
+    script_id = script_response.json()["id"]
+
+    scene_response = client.post(
+        "/api/scenes",
+        json={"name": "可执行场景", "description": "", "source_type": "manual"},
+    )
+    assert scene_response.status_code == 201
+    scene_id = scene_response.json()["id"]
+
+    bind_response = client.post(f"/api/scenes/{scene_id}/scripts", json={"script_id": script_id})
+    assert bind_response.status_code == 201
+    item_response = client.post(
+        f"/api/scenes/{scene_id}/task-items",
+        json={"script_id": script_id, "task_index": 0},
+    )
+    assert item_response.status_code == 201
+    second_item_response = client.post(
+        f"/api/scenes/{scene_id}/task-items",
+        json={"script_id": script_id, "task_index": 1},
+    )
+    assert second_item_response.status_code == 201
+
+    requests: list[dict] = []
+
+    class DummyResponse:
+        def __init__(self, *, status_code: int, body: dict):
+            self.status_code = status_code
+            self._body = body
+            self.text = str(body)
+            self.headers = {"content-type": "application/json"}
+            self.request = SimpleNamespace(url="https://example.test/mock")
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return self._body
+
+    class DummyClient:
+        def __init__(self, timeout: float, follow_redirects: bool = False):
+            self.timeout = timeout
+            self.follow_redirects = follow_redirects
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def request(self, **kwargs):
+            requests.append(kwargs)
+            url = kwargs["url"]
+            if url == "https://example.test/orders":
+                return DummyResponse(status_code=200, body={"data": {"orderNo": "ORD-001"}})
+            return DummyResponse(status_code=200, body={"data": {"status": "CREATED"}})
+
+    monkeypatch.setattr("app.services.http_executor.httpx.Client", DummyClient)
+
+    execute_response = client.post(f"/api/scenes/{scene_id}/execute")
+    assert execute_response.status_code == 200
+    payload = execute_response.json()
+    assert payload["scene_id"] == scene_id
+    assert payload["success"] is True
+    assert payload["message"] == "场景执行完成"
+    assert payload["outputs"]["orderNo"] == "ORD-001"
+    assert payload["outputs"]["orderStatus"] == "CREATED"
+    assert requests[0]["url"] == "https://example.test/orders"
+    assert requests[0]["method"] == "POST"
+    assert requests[0]["headers"]["Authorization"] == "Bearer demo-token"
+    assert requests[1]["url"] == "https://example.test/query"
+    assert requests[1]["json"]["orderNo"] == "ORD-001"
+    assert payload["detail"]["task_results"][1]["outputs"]["orderStatus"] == "CREATED"

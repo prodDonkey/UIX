@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     db_pool_size: int = 20
     db_max_overflow: int = 40
     db_pool_timeout_sec: int = 30
+    scene_http_timeout_sec: float = 30.0
 
     model_config = SettingsConfigDict(
         env_file=(str(BACKEND_ROOT / ".env"), ".env"),

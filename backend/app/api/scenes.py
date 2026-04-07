@@ -3,6 +3,7 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.config import settings
 from app.models.scene import Scene
 from app.models.scene_script import SceneScript
 from app.models.scene_task_item import SceneTaskItem
@@ -11,6 +12,7 @@ from app.schemas.scene import (
     SceneCompiledScriptRead,
     SceneCreate,
     SceneDetailRead,
+    SceneExecuteResponse,
     SceneRead,
     SceneScriptCreate,
     SceneScriptRead,
@@ -36,6 +38,7 @@ from app.services.scene_compiler import (
     task_snapshot_key,
     task_snapshot_variable_meta,
 )
+from app.services.http_executor import HttpExecutionError, execute_scene_http_tasks
 
 router = APIRouter(prefix="/api/scenes", tags=["scenes"])
 
@@ -229,6 +232,37 @@ def _build_scene_detail(db: Session, scene: Scene) -> SceneDetailRead:
             "scripts": relation_payload,
             "task_items": _scene_task_items(db, scene.id),
         }
+    )
+
+
+def _execute_scene(db: Session, scene: Scene, compiled: SceneCompiledScriptRead) -> SceneExecuteResponse:
+    try:
+        execution = execute_scene_http_tasks(
+            task_snapshots=[
+                item.task_content_snapshot
+                for item in db.scalars(
+                    select(SceneTaskItem)
+                    .where(SceneTaskItem.scene_id == scene.id)
+                    .order_by(SceneTaskItem.sort_order.asc(), SceneTaskItem.id.asc())
+                ).all()
+            ],
+            timeout_sec=settings.scene_http_timeout_sec,
+        )
+    except HttpExecutionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    return SceneExecuteResponse(
+        scene_id=scene.id,
+        scene_name=scene.name,
+        script_count=compiled.script_count,
+        task_count=compiled.task_count,
+        success=bool(execution["success"]),
+        message=str(execution["message"]),
+        outputs=execution["outputs"],
+        detail={"task_results": execution["task_results"]},
     )
 
 
@@ -590,3 +624,10 @@ def sync_scene_task_items(scene_id: int, db: Session = Depends(get_db)) -> Scene
 def get_scene_compiled_script(scene_id: int, db: Session = Depends(get_db)) -> SceneCompiledScriptRead:
     scene = _get_scene_or_404(db, scene_id)
     return _compiled_scene_script(db, scene)
+
+
+@router.post("/{scene_id}/execute", response_model=SceneExecuteResponse)
+def execute_scene(scene_id: int, db: Session = Depends(get_db)) -> SceneExecuteResponse:
+    scene = _get_scene_or_404(db, scene_id)
+    compiled = _compiled_scene_script(db, scene)
+    return _execute_scene(db, scene, compiled)

@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -114,6 +115,17 @@ class SceneCompiledScriptRead(BaseModel):
     script_count: int
     task_count: int
     yaml: str
+
+
+class SceneExecuteResponse(BaseModel):
+    scene_id: int
+    scene_name: str
+    script_count: int
+    task_count: int
+    success: bool
+    message: str
+    outputs: dict[str, Any] = {}
+    detail: dict[str, Any] | str | None = None
 
 
 class SceneDetailRead(SceneRead):
