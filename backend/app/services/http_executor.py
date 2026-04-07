@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import re
+import subprocess
 import time
 from typing import Any
 
@@ -144,9 +145,17 @@ def _send_interface_request(client: httpx.Client, interface: dict[str, Any]) -> 
         else:
             request_kwargs["content"] = _stringify_body_value(payload)
 
-    response = client.request(**request_kwargs)
-    response.raise_for_status()
-    return response
+    try:
+        response = client.request(**request_kwargs)
+        response.raise_for_status()
+        return response
+    except httpx.ConnectError as exc:
+        # 某些企业站点在当前 Python/OpenSSL 组合下会触发 SSL EOF，curl 可正常握手。
+        response = _send_interface_request_with_curl(interface, request_kwargs)
+        response.raise_for_status()
+        return response
+    except httpx.HTTPError:
+        raise
 
 
 def _apply_input_bindings(task: dict[str, Any], bindings: list[dict[str, Any]], outputs: dict[str, Any]) -> None:
@@ -222,6 +231,77 @@ def _build_response_payload(response: httpx.Response) -> dict[str, Any]:
         "text": text,
         "url": str(response.request.url),
     }
+
+
+def _send_interface_request_with_curl(interface: dict[str, Any], request_kwargs: dict[str, Any]) -> httpx.Response:
+    command = [
+        "curl",
+        "-sS",
+        "-L",
+        "-X",
+        interface["method"],
+        interface["url"],
+        "-D",
+        "-",
+        "--max-time",
+        "30",
+    ]
+
+    for key, value in (request_kwargs.get("headers") or {}).items():
+        command.extend(["-H", f"{key}: {value}"])
+
+    if "params" in request_kwargs and request_kwargs["params"]:
+        for key, value in dict(request_kwargs["params"]).items():
+            command.extend(["--get", "--data-urlencode", f"{key}={_stringify_body_value(value)}"])
+
+    if "json" in request_kwargs:
+        command.extend(["-H", "Content-Type: application/json", "--data-raw", json.dumps(request_kwargs["json"], ensure_ascii=False)])
+    elif "data" in request_kwargs:
+        for key, value in dict(request_kwargs["data"]).items():
+            command.extend(["--data-urlencode", f"{key}={_stringify_body_value(value)}"])
+    elif "files" in request_kwargs:
+        for key, file_tuple in request_kwargs["files"]:
+            field_value = file_tuple[1] if isinstance(file_tuple, tuple) and len(file_tuple) > 1 else file_tuple
+            command.extend(["-F", f"{key}={_stringify_body_value(field_value)}"])
+    elif "content" in request_kwargs:
+        command.extend(["--data-raw", _stringify_body_value(request_kwargs["content"])])
+
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        raise HttpExecutionError(result.stderr.strip() or "curl 执行失败")
+
+    raw_output = result.stdout
+    separator = "\r\n\r\n" if "\r\n\r\n" in raw_output else "\n\n"
+    parts = [part for part in raw_output.split(separator) if part.strip()]
+    if not parts:
+        raise HttpExecutionError("curl 未返回任何响应")
+
+    response_text = parts[-1]
+    header_block = ""
+    for candidate in reversed(parts[:-1]):
+        if candidate.lstrip().startswith("HTTP/"):
+            header_block = candidate
+            break
+    if not header_block and parts[0].lstrip().startswith("HTTP/"):
+        header_block = parts[0]
+
+    status_code = 200
+    headers: dict[str, str] = {}
+    if header_block:
+        header_lines = [line for line in header_block.splitlines() if line.strip()]
+        if header_lines:
+            first_line = header_lines[0].strip()
+            match = re.search(r"HTTP/\S+\s+(\d{3})", first_line)
+            if match:
+                status_code = int(match.group(1))
+            for line in header_lines[1:]:
+                if ":" not in line:
+                    continue
+                key, value = line.split(":", 1)
+                headers[key.strip()] = value.strip()
+
+    request = httpx.Request(interface["method"], interface["url"], headers=request_kwargs.get("headers"))
+    return httpx.Response(status_code=status_code, headers=headers, text=response_text, request=request)
 
 
 def _build_multipart_files(payload: Any) -> list[tuple[str, tuple[None, str]]]:
