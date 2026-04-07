@@ -9,9 +9,11 @@ from typing import Any
 
 import httpx
 
+from app.core.config import settings
 from app.services.scene_compiler import load_task_snapshot, task_snapshot_variable_meta
 
 VARIABLE_PATTERN = re.compile(r"\$\{([a-zA-Z_][a-zA-Z0-9_]*)\}")
+PATH_SEGMENT_PATTERN = re.compile(r"([^\.\[\]]+)|\[(\d+)\]")
 _MISSING = object()
 
 
@@ -34,10 +36,14 @@ def execute_scene_http_tasks(
             task_name = str(task.get("name") or f"task-{index + 1}")
             variable_meta = task_snapshot_variable_meta(snapshot)
             continue_on_error = bool(task.get("continueOnError", False))
+            runtime_defaults = _build_runtime_defaults()
 
             try:
-                _apply_input_bindings(task, variable_meta["inputs"], outputs)
+                runtime_variables = {**runtime_defaults, **outputs}
+                _apply_input_bindings(task, variable_meta["inputs"], runtime_variables)
                 interface_config = _extract_interface_config(task, index=index)
+                interface_config = _apply_known_variables(interface_config, runtime_variables)
+                _ensure_interface_variables_resolved(interface_config)
                 start_at = time.perf_counter()
                 response = _send_interface_request(client, interface_config)
                 duration_ms = int((time.perf_counter() - start_at) * 1000)
@@ -158,17 +164,18 @@ def _send_interface_request(client: httpx.Client, interface: dict[str, Any]) -> 
         raise
 
 
-def _apply_input_bindings(task: dict[str, Any], bindings: list[dict[str, Any]], outputs: dict[str, Any]) -> None:
+def _apply_input_bindings(task: dict[str, Any], bindings: list[dict[str, Any]], variables: dict[str, Any]) -> None:
     for binding in bindings:
         target_path = str(binding.get("target_path") or "").strip()
         expression = str(binding.get("expression") or "").strip()
         if not target_path or not expression:
             continue
-        resolved = _resolve_expression(expression, outputs)
+        resolved = _resolve_expression(expression, variables)
         _set_by_path(task, target_path, resolved)
 
 
 def _resolve_expression(expression: str, outputs: dict[str, Any]) -> Any:
+    expression = _normalize_variable_placeholders(expression)
     exact_match = VARIABLE_PATTERN.fullmatch(expression)
     if exact_match:
         variable_name = exact_match.group(1)
@@ -193,7 +200,10 @@ def _resolve_expression(expression: str, outputs: dict[str, Any]) -> Any:
 def _extract_output_variables(definitions: list[dict[str, Any]], response_payload: dict[str, Any]) -> dict[str, Any]:
     produced: dict[str, Any] = {}
     body = response_payload["body"]
+    parsed_resp_msg = _parse_resp_msg(body)
     wrapper = {
+        "respMsg": parsed_resp_msg if parsed_resp_msg is not _MISSING else body,
+        "response": body,
         "status_code": response_payload["status_code"],
         "headers": response_payload["headers"],
         "body": body,
@@ -216,6 +226,88 @@ def _extract_output_variables(definitions: list[dict[str, Any]], response_payloa
             raise HttpExecutionError(f"输出变量提取失败：{name} <- {source_path}")
         produced[name] = copy.deepcopy(value)
     return produced
+
+
+def _parse_resp_msg(body: Any) -> Any:
+    if not isinstance(body, dict):
+        return _MISSING
+    resp_msg = body.get("respMsg")
+    if not isinstance(resp_msg, str):
+        return _MISSING
+    try:
+        return json.loads(resp_msg)
+    except ValueError:
+        return _MISSING
+
+
+def _ensure_interface_variables_resolved(interface: dict[str, Any]) -> None:
+    unresolved = sorted(_collect_unresolved_variables(interface))
+    if unresolved:
+        joined = ", ".join(unresolved)
+        raise HttpExecutionError(f"缺少执行变量：{joined}")
+
+
+def _build_runtime_defaults() -> dict[str, Any]:
+    defaults = {
+        "cookie": settings.getresult_cookie,
+        "uid": settings.getresult_uid,
+        "addressId": settings.getresult_address_id,
+        "appointmentTime": settings.getresult_appointment_time,
+    }
+    return {key: value for key, value in defaults.items() if value not in (None, "")}
+
+
+def _apply_known_variables(value: Any, variables: dict[str, Any]) -> Any:
+    if isinstance(value, str):
+        return _resolve_known_variables(value, variables)
+    if isinstance(value, dict):
+        return {key: _apply_known_variables(nested, variables) for key, nested in value.items()}
+    if isinstance(value, list):
+        return [_apply_known_variables(item, variables) for item in value]
+    return value
+
+
+def _resolve_known_variables(expression: str, variables: dict[str, Any]) -> Any:
+    expression = _normalize_variable_placeholders(expression)
+    exact_match = VARIABLE_PATTERN.fullmatch(expression)
+    if exact_match:
+        variable_name = exact_match.group(1)
+        if variable_name in variables:
+            return copy.deepcopy(variables[variable_name])
+        return expression
+
+    def replacer(match: re.Match[str]) -> str:
+        variable_name = match.group(1)
+        if variable_name not in variables:
+            return match.group(0)
+        value = variables[variable_name]
+        if value is None:
+            return ""
+        if isinstance(value, (dict, list)):
+            return json.dumps(value, ensure_ascii=False)
+        return str(value)
+
+    return VARIABLE_PATTERN.sub(replacer, expression)
+
+
+def _normalize_variable_placeholders(expression: str) -> str:
+    return expression.replace(r"\${", "${")
+
+
+def _collect_unresolved_variables(value: Any) -> set[str]:
+    if isinstance(value, str):
+        return {match.group(1) for match in VARIABLE_PATTERN.finditer(value)}
+    if isinstance(value, dict):
+        unresolved: set[str] = set()
+        for nested in value.values():
+            unresolved.update(_collect_unresolved_variables(nested))
+        return unresolved
+    if isinstance(value, list):
+        unresolved: set[str] = set()
+        for nested in value:
+            unresolved.update(_collect_unresolved_variables(nested))
+        return unresolved
+    return set()
 
 
 def _build_response_payload(response: httpx.Response) -> dict[str, Any]:
@@ -346,42 +438,85 @@ def _safe_read_interface_field(task: dict[str, Any], key: str) -> str | None:
 
 
 def _set_by_path(root: dict[str, Any], path: str, value: Any) -> None:
-    segments = [segment for segment in path.split(".") if segment]
+    segments = _parse_path(path, field_name="target_path")
     if not segments:
         raise HttpExecutionError("变量 target_path 不能为空")
 
     current: Any = root
-    for segment in segments[:-1]:
-        if not isinstance(current, dict):
+    for index, segment in enumerate(segments[:-1]):
+        next_segment = segments[index + 1]
+        container = [] if isinstance(next_segment, int) else {}
+        if isinstance(segment, str):
+            if not isinstance(current, dict):
+                raise HttpExecutionError(f"变量 target_path 非法：{path}")
+            next_value = current.get(segment)
+            if not isinstance(next_value, (dict, list)):
+                next_value = copy.deepcopy(container)
+                current[segment] = next_value
+            current = next_value
+            continue
+        if not isinstance(current, list):
             raise HttpExecutionError(f"变量 target_path 非法：{path}")
-        next_value = current.get(segment)
-        if not isinstance(next_value, dict):
-            next_value = {}
+        if segment < 0:
+            raise HttpExecutionError(f"变量 target_path 非法：{path}")
+        while len(current) <= segment:
+            current.append(copy.deepcopy(container))
+        next_value = current[segment]
+        if not isinstance(next_value, (dict, list)):
+            next_value = copy.deepcopy(container)
             current[segment] = next_value
         current = next_value
 
-    if not isinstance(current, dict):
+    last_segment = segments[-1]
+    if isinstance(last_segment, str):
+        if not isinstance(current, dict):
+            raise HttpExecutionError(f"变量 target_path 非法：{path}")
+        current[last_segment] = value
+        return
+    if not isinstance(current, list):
         raise HttpExecutionError(f"变量 target_path 非法：{path}")
-    current[segments[-1]] = value
+    if last_segment < 0:
+        raise HttpExecutionError(f"变量 target_path 非法：{path}")
+    while len(current) <= last_segment:
+        current.append(None)
+    current[last_segment] = value
 
 
 def _get_by_path(root: Any, path: str) -> Any:
-    segments = [segment for segment in path.split(".") if segment]
+    try:
+        segments = _parse_path(path, field_name="source_path")
+    except HttpExecutionError:
+        return _MISSING
     current = root
     for segment in segments:
         if isinstance(current, dict):
-            if segment not in current:
+            if not isinstance(segment, str) or segment not in current:
                 return _MISSING
             current = current[segment]
             continue
         if isinstance(current, list):
-            try:
-                index = int(segment)
-            except ValueError:
+            if not isinstance(segment, int):
                 return _MISSING
-            if index < 0 or index >= len(current):
+            if segment < 0 or segment >= len(current):
                 return _MISSING
-            current = current[index]
+            current = current[segment]
             continue
         return _MISSING
     return current
+
+
+def _parse_path(path: str, *, field_name: str) -> list[str | int]:
+    tokens: list[str | int] = []
+    for raw_segment in [segment for segment in path.split(".") if segment]:
+        consumed = ""
+        for match in PATH_SEGMENT_PATTERN.finditer(raw_segment):
+            consumed += match.group(0)
+            key = match.group(1)
+            index = match.group(2)
+            if key is not None:
+                tokens.append(key)
+                continue
+            tokens.append(int(index))
+        if consumed != raw_segment:
+            raise HttpExecutionError(f"变量 {field_name} 非法：{path}")
+    return tokens
