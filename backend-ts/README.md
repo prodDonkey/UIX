@@ -26,6 +26,13 @@ npm run dev
 
 默认端口：`8001`
 
+前端本地开发默认会连 `http://127.0.0.1:8001`。
+如果要临时回退到 Python `backend:8000`，可设置：
+
+```bash
+export VITE_API_BASE_URL=http://127.0.0.1:8000
+```
+
 ## 构建
 
 ```bash
@@ -40,3 +47,4 @@ npm run check
 - Python `backend` 在迁移完成前仍是联调与回归基线
 - 继续沿用现有 MySQL 数据库，不做破坏性 schema 变更
 - 核心执行链路迁移后，必须用真实场景回放验证 `scene execute` 行为
+- 仓库根目录 `dev.sh` 默认会启动 TypeScript 后端；如需回退 Python，可设置 `UIX_BACKEND_IMPL=python`
