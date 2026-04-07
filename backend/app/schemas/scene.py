@@ -5,6 +5,18 @@ from pydantic import BaseModel, Field
 from app.schemas.script import ScriptRead
 
 
+class SceneTaskOutputVariable(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    source_path: str = Field(default="", max_length=512)
+    description: str = Field(default="", max_length=255)
+
+
+class SceneTaskInputBinding(BaseModel):
+    target_path: str = Field(min_length=1, max_length=512)
+    expression: str = Field(min_length=1, max_length=512)
+    description: str = Field(default="", max_length=255)
+
+
 class SceneBase(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     description: str = Field(default="")
@@ -69,6 +81,8 @@ class SceneTaskItemCreate(BaseModel):
 class SceneTaskItemUpdate(BaseModel):
     sort_order: int | None = Field(default=None, ge=1)
     remark: str | None = None
+    input_bindings: list[SceneTaskInputBinding] | None = None
+    output_variables: list[SceneTaskOutputVariable] | None = None
 
 
 class SceneTaskItemRead(BaseModel):
@@ -84,6 +98,8 @@ class SceneTaskItemRead(BaseModel):
     created_at: datetime
     sync_status: str = "current"
     sync_message: str = ""
+    input_bindings: list[SceneTaskInputBinding] = []
+    output_variables: list[SceneTaskOutputVariable] = []
     script: ScriptRead
 
 

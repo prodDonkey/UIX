@@ -189,6 +189,9 @@
                   placeholder="可填写该任务在场景中的用途"
                   @change="(value) => updateTaskRemark(row.id, String(value ?? ''))"
                 />
+                <div class="task-variable-summary">
+                  出参 {{ row.output_variables.length }} / 入参 {{ row.input_bindings.length }}
+                </div>
               </div>
               <div class="task-col-action">
                 <el-button
@@ -200,6 +203,7 @@
                 >
                   同步
                 </el-button>
+                <el-button size="small" plain @click="openVariableDialog(row)">变量</el-button>
                 <el-button size="small" type="danger" @click="removeTaskItem(row.id)">移除</el-button>
               </div>
             </div>
@@ -229,6 +233,43 @@
       </template>
       <pre class="compiled-preview"><code>{{ compiledYaml }}</code></pre>
     </el-dialog>
+
+    <el-dialog
+      v-model="variableDialogVisible"
+      width="min(720px, 92vw)"
+      destroy-on-close
+    >
+      <template #header>
+        <div class="dialog-header">
+          <strong>任务变量配置</strong>
+          <span class="dialog-desc">{{ variableDialogTask?.task_name_snapshot || '-' }}</span>
+        </div>
+      </template>
+
+      <el-form label-position="top">
+        <el-form-item label="输出变量定义">
+          <el-input
+            v-model="variableOutputsText"
+            type="textarea"
+            :rows="8"
+            placeholder='示例：[{"name":"recycleOrderId","source_path":"respMsg.data.fields.recycleOrderId","description":"下单返回单号"}]'
+          />
+        </el-form-item>
+        <el-form-item label="输入变量映射">
+          <el-input
+            v-model="variableInputsText"
+            type="textarea"
+            :rows="8"
+            placeholder='示例：[{"target_path":"interface.params.orderNo","expression":"${recycleOrderId}","description":"引用上一步生成单号"}]'
+          />
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="variableDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="savingVariableConfig" @click="saveVariableConfig">保存变量配置</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -237,7 +278,14 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import { sceneApi, type SceneScriptRelation, type SceneTaskItem, type ScriptTask } from '../api/scenes';
+import {
+  sceneApi,
+  type SceneScriptRelation,
+  type SceneTaskInputBinding,
+  type SceneTaskItem,
+  type SceneTaskOutputVariable,
+  type ScriptTask,
+} from '../api/scenes';
 import { scriptApi, type Script } from '../api/scripts';
 import SceneScriptPicker from '../components/SceneScriptPicker.vue';
 import { formatServerDateTime } from '../utils/datetime';
@@ -257,6 +305,11 @@ const scriptTasksMap = ref<Record<number, ScriptTask[]>>({});
 const scripts = ref<Script[]>([]);
 const compiledPreviewVisible = ref(false);
 const compiledYaml = ref('');
+const variableDialogVisible = ref(false);
+const variableDialogTask = ref<SceneTaskItem | null>(null);
+const variableOutputsText = ref('[]');
+const variableInputsText = ref('[]');
+const savingVariableConfig = ref(false);
 const draggingTaskIndex = ref<number | null>(null);
 const draggingTaskItemId = ref<number | null>(null);
 const dropTaskItemId = ref<number | null>(null);
@@ -396,6 +449,47 @@ async function updateTaskRemark(itemId: number, remark: string) {
   const target = taskItems.value.find((item) => item.id === itemId);
   if (target) target.remark = remark;
   ElMessage.success('任务备注已更新');
+}
+
+function openVariableDialog(row: SceneTaskItem) {
+  variableDialogTask.value = row;
+  variableOutputsText.value = JSON.stringify(row.output_variables || [], null, 2);
+  variableInputsText.value = JSON.stringify(row.input_bindings || [], null, 2);
+  variableDialogVisible.value = true;
+}
+
+async function saveVariableConfig() {
+  if (!variableDialogTask.value) return;
+
+  let outputVariables: SceneTaskOutputVariable[] = [];
+  let inputBindings: SceneTaskInputBinding[] = [];
+  try {
+    outputVariables = JSON.parse(variableOutputsText.value || '[]');
+    inputBindings = JSON.parse(variableInputsText.value || '[]');
+  } catch (error) {
+    ElMessage.error('变量配置 JSON 格式不正确');
+    return;
+  }
+
+  savingVariableConfig.value = true;
+  try {
+    const updated = await sceneApi.updateTaskItem(sceneId.value, variableDialogTask.value.id, {
+      output_variables: outputVariables,
+      input_bindings: inputBindings,
+      sort_order: variableDialogTask.value.sort_order,
+      remark: variableDialogTask.value.remark,
+    });
+    const target = taskItems.value.find((item) => item.id === updated.id);
+    if (target) {
+      Object.assign(target, updated);
+    }
+    variableDialogVisible.value = false;
+    ElMessage.success('变量配置已保存');
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.detail || '保存变量配置失败');
+  } finally {
+    savingVariableConfig.value = false;
+  }
 }
 
 async function syncTaskItem(itemId: number) {
@@ -752,6 +846,12 @@ function syncStatusTagType(status: string) {
   color: #6b7280;
   font-size: 12px;
   line-height: 1.4;
+}
+
+.task-variable-summary {
+  margin-top: 6px;
+  color: #6b7280;
+  font-size: 12px;
 }
 
 .task-col-action {

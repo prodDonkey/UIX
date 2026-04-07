@@ -29,6 +29,18 @@ export type ScriptTask = {
   task_content: string;
 };
 
+export type SceneTaskOutputVariable = {
+  name: string;
+  source_path: string;
+  description: string;
+};
+
+export type SceneTaskInputBinding = {
+  target_path: string;
+  expression: string;
+  description: string;
+};
+
 export type SceneTaskItem = {
   id: number;
   scene_id: number;
@@ -42,6 +54,8 @@ export type SceneTaskItem = {
   created_at: string;
   sync_status: 'current' | 'stale' | 'missing' | string;
   sync_message: string;
+  input_bindings: SceneTaskInputBinding[];
+  output_variables: SceneTaskOutputVariable[];
   script: Script;
 };
 
@@ -123,7 +137,12 @@ export const sceneApi = {
   async updateTaskItem(
     sceneId: number,
     itemId: number,
-    payload: Partial<{ sort_order: number; remark: string }>,
+    payload: Partial<{
+      sort_order: number;
+      remark: string;
+      input_bindings: SceneTaskInputBinding[];
+      output_variables: SceneTaskOutputVariable[];
+    }>,
   ): Promise<SceneTaskItem> {
     const { data } = await http.put(`/api/scenes/${sceneId}/task-items/${itemId}`, payload);
     return data;
