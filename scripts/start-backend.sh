@@ -5,12 +5,6 @@ source ~/.zshrc >/dev/null 2>&1 || true
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 BACKEND_IMPL="${UIX_BACKEND_IMPL:-ts}"
 
-if [ -f "${ROOT_DIR}/.env" ]; then
-  set -a
-  source "${ROOT_DIR}/.env"
-  set +a
-fi
-
 HOST_IP=10.238.15.91
 
 if [ "${BACKEND_IMPL}" = "python" ]; then

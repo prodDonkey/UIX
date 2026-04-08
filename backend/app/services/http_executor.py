@@ -48,6 +48,7 @@ def execute_scene_http_tasks(
                 response = _send_interface_request(client, interface_config)
                 duration_ms = int((time.perf_counter() - start_at) * 1000)
                 response_payload = _build_response_payload(response)
+                _raise_for_business_error(response_payload)
                 produced_outputs = _extract_output_variables(variable_meta["outputs"], response_payload)
                 outputs.update(produced_outputs)
                 task_results.append(
@@ -238,6 +239,30 @@ def _parse_resp_msg(body: Any) -> Any:
         return json.loads(resp_msg)
     except ValueError:
         return _MISSING
+
+
+def _raise_for_business_error(response_payload: dict[str, Any]) -> None:
+    body = response_payload["body"]
+    url = str(response_payload.get("url") or "")
+    text = str(response_payload.get("text") or "")
+    parsed_resp_msg = _parse_resp_msg(body)
+
+    if "zzsso.zhuanspirit.com/login" in url or "zzsso.zhuanspirit.com/login" in text:
+        raise HttpExecutionError("接口调用失败：登录态已失效，需要重新登录后刷新 Cookie")
+
+    if isinstance(body, dict) and int(body.get("status", 0) or 0) == -3:
+        desc = str(body.get("desc") or "调用接口错误").strip() or "调用接口错误"
+        raise HttpExecutionError(f"接口调用失败：{desc}，可能是 Cookie 已失效，需要重新登录")
+
+    if isinstance(parsed_resp_msg, dict):
+        code = parsed_resp_msg.get("code")
+        if isinstance(code, int) and code != 0:
+            message = str(
+                parsed_resp_msg.get("errorMsg") or parsed_resp_msg.get("errMsg") or parsed_resp_msg.get("message") or ""
+            ).strip()
+            if message:
+                raise HttpExecutionError(f"接口业务失败：{message}")
+            raise HttpExecutionError(f"接口业务失败：code={code}")
 
 
 def _ensure_interface_variables_resolved(interface: dict[str, Any]) -> None:

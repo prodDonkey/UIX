@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
-const projectRoot = path.resolve(currentDir, "../../..");
+const projectRoot = path.resolve(currentDir, "../..");
 
 loadDotenv({
   path: path.join(projectRoot, ".env")

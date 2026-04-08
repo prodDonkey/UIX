@@ -49,6 +49,7 @@ export async function executeSceneHttpTasks(params: {
       const response = await sendInterfaceRequest(interfaceConfig, params.timeoutSec);
       const durationMs = Date.now() - startAt;
       const responsePayload = await buildResponsePayload(response, interfaceConfig.url);
+      raiseForBusinessError(responsePayload);
       const producedOutputs = extractOutputVariables(variableMeta.outputs, responsePayload);
       Object.assign(outputs, producedOutputs);
       taskResults.push({
@@ -366,7 +367,7 @@ function collectUnresolvedVariables(value: unknown): Set<string> {
   return unresolved;
 }
 
-async function buildResponsePayload(response: Response, url: string) {
+async function buildResponsePayload(response: Response, fallbackUrl: string) {
   const text = await response.text();
   let body: unknown = text;
   try {
@@ -379,8 +380,35 @@ async function buildResponsePayload(response: Response, url: string) {
     headers: Object.fromEntries(response.headers.entries()),
     body,
     text,
-    url
+    url: response.url || fallbackUrl
   };
+}
+
+function raiseForBusinessError(responsePayload: Record<string, unknown>) {
+  const body = responsePayload.body;
+  const url = String(responsePayload.url ?? "");
+  const text = String(responsePayload.text ?? "");
+  const parsedRespMsg = parseRespMsg(body);
+
+  if (url.includes("zzsso.zhuanspirit.com/login") || text.includes("zzsso.zhuanspirit.com/login")) {
+    throw new HttpExecutionError("接口调用失败：登录态已失效，需要重新登录后刷新 Cookie");
+  }
+
+  if (isRecord(body) && Number(body.status ?? 0) === -3) {
+    const desc = String(body.desc ?? "调用接口错误").trim() || "调用接口错误";
+    throw new HttpExecutionError(`接口调用失败：${desc}，可能是 Cookie 已失效，需要重新登录`);
+  }
+
+  if (isRecord(parsedRespMsg)) {
+    const code = parsedRespMsg.code;
+    if (typeof code === "number" && code !== 0) {
+      const message = String(parsedRespMsg.errorMsg ?? parsedRespMsg.errMsg ?? parsedRespMsg.message ?? "").trim();
+      if (message) {
+        throw new HttpExecutionError(`接口业务失败：${message}`);
+      }
+      throw new HttpExecutionError(`接口业务失败：code=${code}`);
+    }
+  }
 }
 
 async function sendInterfaceRequestWithCurl(interfaceConfig: InterfaceConfig, url: string, payload: unknown): Promise<Response> {

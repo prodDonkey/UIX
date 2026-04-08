@@ -834,6 +834,162 @@ def test_execute_scene_extracts_from_stringified_respmsg(monkeypatch) -> None:
     assert payload["outputs"]["recycleOrderId"] == "RID-STR"
 
 
+def test_execute_scene_reports_cookie_expired_error(monkeypatch) -> None:
+    client = _build_test_client()
+
+    script_response = client.post(
+        "/api/scripts",
+        json={
+            "name": "Cookie 失效脚本",
+            "content": (
+                "interface:\n"
+                "  method: POST\n"
+                "  url: https://example.test/orders\n"
+                "  contentType: application/json\n"
+                "tasks:\n"
+                "  - name: 下单\n"
+                "    sceneVariables:\n"
+                "      outputs:\n"
+                "        - name: recycleOrderId\n"
+                "          source_path: respMsg.data.fields.recycleOrderId\n"
+                "    flow:\n"
+                "      - aiAction: 调用下单接口\n"
+            ),
+            "source_type": "manual",
+        },
+    )
+    assert script_response.status_code == 201
+    script_id = script_response.json()["id"]
+
+    scene_response = client.post(
+        "/api/scenes",
+        json={"name": "Cookie 失效场景", "description": "", "source_type": "manual"},
+    )
+    assert scene_response.status_code == 201
+    scene_id = scene_response.json()["id"]
+
+    bind_response = client.post(f"/api/scenes/{scene_id}/scripts", json={"script_id": script_id})
+    assert bind_response.status_code == 201
+    item_response = client.post(
+        f"/api/scenes/{scene_id}/task-items",
+        json={"script_id": script_id, "task_index": 0},
+    )
+    assert item_response.status_code == 201
+
+    class DummyResponse:
+        def __init__(self):
+            self.status_code = 200
+            self.text = '{"status":-3,"desc":"调用接口错误","data":null}'
+            self.headers = {"content-type": "application/json"}
+            self.request = SimpleNamespace(url="https://zzsso.zhuanspirit.com/login")
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"status": -3, "desc": "调用接口错误", "data": None}
+
+    class DummyClient:
+        def __init__(self, timeout: float, follow_redirects: bool = False):
+            self.timeout = timeout
+            self.follow_redirects = follow_redirects
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def request(self, **kwargs):
+            return DummyResponse()
+
+    monkeypatch.setattr("app.services.http_executor.httpx.Client", DummyClient)
+
+    execute_response = client.post(f"/api/scenes/{scene_id}/execute")
+    assert execute_response.status_code == 200
+    payload = execute_response.json()
+    assert payload["success"] is False
+    assert payload["detail"]["task_results"][0]["error"] == "接口调用失败：登录态已失效，需要重新登录后刷新 Cookie"
+
+
+def test_execute_scene_reports_business_error_from_respmsg(monkeypatch) -> None:
+    client = _build_test_client()
+
+    script_response = client.post(
+        "/api/scripts",
+        json={
+            "name": "业务失败脚本",
+            "content": (
+                "interface:\n"
+                "  method: POST\n"
+                "  url: https://example.test/orders\n"
+                "  contentType: application/json\n"
+                "tasks:\n"
+                "  - name: 下单\n"
+                "    sceneVariables:\n"
+                "      outputs:\n"
+                "        - name: recycleOrderId\n"
+                "          source_path: respMsg.data.fields.recycleOrderId\n"
+                "    flow:\n"
+                "      - aiAction: 调用下单接口\n"
+            ),
+            "source_type": "manual",
+        },
+    )
+    assert script_response.status_code == 201
+    script_id = script_response.json()["id"]
+
+    scene_response = client.post(
+        "/api/scenes",
+        json={"name": "业务失败场景", "description": "", "source_type": "manual"},
+    )
+    assert scene_response.status_code == 201
+    scene_id = scene_response.json()["id"]
+
+    bind_response = client.post(f"/api/scenes/{scene_id}/scripts", json={"script_id": script_id})
+    assert bind_response.status_code == 201
+    item_response = client.post(
+        f"/api/scenes/{scene_id}/task-items",
+        json={"script_id": script_id, "task_index": 0},
+    )
+    assert item_response.status_code == 201
+
+    class DummyResponse:
+        def __init__(self):
+            self.status_code = 200
+            self.text = '{"respMsg":"{\\"code\\":-111,\\"errorMsg\\":\\"请选择上门时间\\",\\"raw\\":false}"}'
+            self.headers = {"content-type": "application/json"}
+            self.request = SimpleNamespace(url="https://example.test/orders")
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"respMsg": '{"code":-111,"errorMsg":"请选择上门时间","raw":false}'}
+
+    class DummyClient:
+        def __init__(self, timeout: float, follow_redirects: bool = False):
+            self.timeout = timeout
+            self.follow_redirects = follow_redirects
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def request(self, **kwargs):
+            return DummyResponse()
+
+    monkeypatch.setattr("app.services.http_executor.httpx.Client", DummyClient)
+
+    execute_response = client.post(f"/api/scenes/{scene_id}/execute")
+    assert execute_response.status_code == 200
+    payload = execute_response.json()
+    assert payload["success"] is False
+    assert payload["detail"]["task_results"][0]["error"] == "接口业务失败：请选择上门时间"
+
+
 def test_execute_scene_reports_missing_runtime_variables(monkeypatch) -> None:
     client = _build_test_client()
 
