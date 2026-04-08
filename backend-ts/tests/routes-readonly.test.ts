@@ -5,12 +5,12 @@ import path from "node:path";
 
 import { parse } from "dotenv";
 
-const backendEnvPath = path.resolve(process.cwd(), "../backend/.env");
-const hasBackendEnv = existsSync(backendEnvPath);
-const backendEnv = hasBackendEnv ? parse(readFileSync(backendEnvPath, "utf8")) : {};
+const projectEnvPath = path.resolve(process.cwd(), "../.env");
+const hasProjectEnv = existsSync(projectEnvPath);
+const projectEnv = hasProjectEnv ? parse(readFileSync(projectEnvPath, "utf8")) : {};
 
 function ensureDbEnv() {
-  const databaseUrl = process.env.DATABASE_URL ?? backendEnv.DATABASE_URL;
+  const databaseUrl = process.env.DATABASE_URL ?? projectEnv.DATABASE_URL;
   if (!databaseUrl) {
     return false;
   }

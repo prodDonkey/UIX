@@ -1,7 +1,14 @@
 import { config as loadDotenv } from "dotenv";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
 
-loadDotenv();
+const currentDir = path.dirname(fileURLToPath(import.meta.url));
+const projectRoot = path.resolve(currentDir, "../../..");
+
+loadDotenv({
+  path: path.join(projectRoot, ".env")
+});
 
 if (typeof process.env.DATABASE_URL === "string" && process.env.DATABASE_URL.startsWith("mysql+pymysql://")) {
   process.env.DATABASE_URL = process.env.DATABASE_URL.replace(/^mysql\+pymysql:\/\//, "mysql://");

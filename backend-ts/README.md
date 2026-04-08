@@ -27,6 +27,7 @@ npm run dev
 默认端口：`8001`
 
 前端本地开发默认会连 `http://127.0.0.1:8001`。
+当前前端、Python backend、TypeScript backend 都统一从仓库根目录 `.env` 取配置。
 如果要临时回退到 Python `backend:8000`，可设置：
 
 ```bash

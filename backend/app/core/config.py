@@ -3,6 +3,7 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = BACKEND_ROOT.parent
 
 
 class Settings(BaseSettings):
@@ -20,7 +21,7 @@ class Settings(BaseSettings):
     getresult_appointment_time: str | None = None
 
     model_config = SettingsConfigDict(
-        env_file=(str(BACKEND_ROOT / ".env"), ".env"),
+        env_file=(str(PROJECT_ROOT / ".env"),),
         extra="ignore",
     )
 
