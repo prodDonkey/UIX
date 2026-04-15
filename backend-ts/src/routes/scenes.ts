@@ -4,6 +4,7 @@ import type { FastifyInstance } from "fastify";
 import { env } from "../config.js";
 import { prisma } from "../db/prisma.js";
 import { badRequest, conflict, notFound, sendError } from "../lib/errors.js";
+import { AndroidExecutionError, executeCompiledScene } from "../modules/midscene/index.js";
 import { serializeDate } from "../lib/serializers.js";
 import {
   applyTaskVariableMeta,
@@ -19,7 +20,7 @@ import {
   taskSnapshotKey,
   taskSnapshotVariableMeta
 } from "../services/scene-compiler.js";
-import { executeSceneHttpTasks, HttpExecutionError } from "../services/http-executor.js";
+import { HttpExecutionError } from "../services/http-executor.js";
 import {
   sceneCreateSchema,
   sceneScriptCreateSchema,
@@ -211,15 +212,17 @@ async function buildSceneDetail(scene: Scene) {
   };
 }
 
-async function executeScene(scene: Scene, compiled: { script_count: number; task_count: number }) {
+async function executeScene(scene: Scene, compiled: { script_count: number; task_count: number; yaml: string }) {
   try {
     const taskItems = await prisma.sceneTaskItem.findMany({
       where: { scene_id: scene.id },
       orderBy: [{ sort_order: "asc" }, { id: "asc" }]
     });
-    const execution = await executeSceneHttpTasks({
+    const execution = await executeCompiledScene({
+      compiledYaml: compiled.yaml,
       taskSnapshots: taskItems.map((item) => item.task_content_snapshot),
-      timeoutSec: env.SCENE_HTTP_TIMEOUT_SEC
+      httpTimeoutSec: env.SCENE_HTTP_TIMEOUT_SEC,
+      defaultAndroidDeviceId: env.MIDSCENE_ANDROID_DEVICE_ID
     });
     return {
       scene_id: scene.id,
@@ -230,11 +233,12 @@ async function executeScene(scene: Scene, compiled: { script_count: number; task
       message: String(execution.message),
       outputs: execution.outputs,
       detail: {
-        task_results: execution.task_results
+        task_results: execution.task_results,
+        result: execution.result ?? execution.outputs
       }
     };
   } catch (error) {
-    if (error instanceof HttpExecutionError) {
+    if (error instanceof HttpExecutionError || error instanceof AndroidExecutionError) {
       badRequest(error.message);
     }
     throw error;
