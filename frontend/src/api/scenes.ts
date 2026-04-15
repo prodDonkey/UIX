@@ -29,6 +29,18 @@ export type ScriptTask = {
   task_content: string;
 };
 
+export type SceneTaskOutputVariable = {
+  name: string;
+  source_path: string;
+  description: string;
+};
+
+export type SceneTaskInputBinding = {
+  target_path: string;
+  expression: string;
+  description: string;
+};
+
 export type SceneTaskItem = {
   id: number;
   scene_id: number;
@@ -42,6 +54,8 @@ export type SceneTaskItem = {
   created_at: string;
   sync_status: 'current' | 'stale' | 'missing' | string;
   sync_message: string;
+  input_bindings: SceneTaskInputBinding[];
+  output_variables: SceneTaskOutputVariable[];
   script: Script;
 };
 
@@ -52,14 +66,21 @@ export type SceneCompiledScript = {
   yaml: string;
 };
 
-export type SceneRunCreateResult = {
-  run_id: number;
-};
-
 export type SceneTaskSyncResult = {
   updated_count: number;
   missing_count: number;
   task_items: SceneTaskItem[];
+};
+
+export type SceneExecuteResult = {
+  scene_id: number;
+  scene_name: string;
+  script_count: number;
+  task_count: number;
+  success: boolean;
+  message: string;
+  outputs: Record<string, unknown>;
+  detail?: Record<string, unknown> | string | null;
 };
 
 export type SceneDetail = Scene & {
@@ -127,7 +148,12 @@ export const sceneApi = {
   async updateTaskItem(
     sceneId: number,
     itemId: number,
-    payload: Partial<{ sort_order: number; remark: string }>,
+    payload: Partial<{
+      sort_order: number;
+      remark: string;
+      input_bindings: SceneTaskInputBinding[];
+      output_variables: SceneTaskOutputVariable[];
+    }>,
   ): Promise<SceneTaskItem> {
     const { data } = await http.put(`/api/scenes/${sceneId}/task-items/${itemId}`, payload);
     return data;
@@ -147,8 +173,8 @@ export const sceneApi = {
     const { data } = await http.get(`/api/scenes/${sceneId}/compiled-script`);
     return data;
   },
-  async runScene(sceneId: number): Promise<SceneRunCreateResult> {
-    const { data } = await http.post(`/api/scenes/${sceneId}/runs`);
+  async execute(sceneId: number): Promise<SceneExecuteResult> {
+    const { data } = await http.post(`/api/scenes/${sceneId}/execute`);
     return data;
   },
 };

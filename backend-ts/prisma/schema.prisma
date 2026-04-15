@@ -1,0 +1,87 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Script {
+  id            Int             @id @default(autoincrement())
+  name          String          @db.VarChar(128)
+  content       String          @db.Text
+  source_type   String          @default("manual") @db.VarChar(16)
+  created_at    DateTime        @default(now()) @db.DateTime(0)
+  updated_at    DateTime        @updatedAt @db.DateTime(0)
+  sceneScripts  SceneScript[]
+  sceneTaskItems SceneTaskItem[]
+  scriptVersions ScriptVersion[]
+
+  @@index([id])
+  @@map("scripts")
+}
+
+model Scene {
+  id             Int             @id @default(autoincrement())
+  name           String          @db.VarChar(128)
+  description    String          @default("") @db.Text
+  source_type    String          @default("manual") @db.VarChar(16)
+  created_at     DateTime        @default(now()) @db.DateTime(0)
+  updated_at     DateTime        @updatedAt @db.DateTime(0)
+  sceneScripts   SceneScript[]
+  sceneTaskItems SceneTaskItem[]
+
+  @@index([id])
+  @@map("scenes")
+}
+
+model SceneScript {
+  id          Int             @id @default(autoincrement())
+  scene_id    Int
+  script_id   Int
+  sort_order  Int             @default(1)
+  remark      String          @default("") @db.Text
+  created_at  DateTime        @default(now()) @db.DateTime(0)
+  scene       Scene           @relation(fields: [scene_id], references: [id], onDelete: Cascade)
+  script      Script          @relation(fields: [script_id], references: [id], onDelete: Cascade)
+  taskItems    SceneTaskItem[]
+
+  @@unique([scene_id, script_id], map: "uq_scene_scripts_scene_id_script_id")
+  @@index([scene_id])
+  @@index([script_id])
+  @@map("scene_scripts")
+}
+
+model SceneTaskItem {
+  id                    Int          @id @default(autoincrement())
+  scene_id              Int
+  script_id             Int
+  scene_script_id       Int?
+  task_index            Int
+  task_name_snapshot    String       @db.Text
+  task_content_snapshot String       @db.Text
+  sort_order            Int          @default(1)
+  remark                String       @default("") @db.Text
+  created_at            DateTime     @default(now()) @db.DateTime(0)
+  scene                 Scene        @relation(fields: [scene_id], references: [id], onDelete: Cascade)
+  script                Script       @relation(fields: [script_id], references: [id], onDelete: Cascade)
+  sceneScript           SceneScript? @relation(fields: [scene_script_id], references: [id], onDelete: SetNull)
+
+  @@index([scene_id])
+  @@index([script_id])
+  @@index([scene_script_id])
+  @@map("scene_task_items")
+}
+
+model ScriptVersion {
+  id         Int      @id @default(autoincrement())
+  script_id  Int
+  version_no Int
+  content    String   @db.Text
+  created_at DateTime @default(now()) @db.DateTime(0)
+  script     Script   @relation(fields: [script_id], references: [id], onDelete: Cascade)
+
+  @@index([script_id])
+  @@map("script_versions")
+}

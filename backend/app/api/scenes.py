@@ -3,6 +3,7 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.config import settings
 from app.models.scene import Scene
 from app.models.scene_script import SceneScript
 from app.models.scene_task_item import SceneTaskItem
@@ -11,6 +12,7 @@ from app.schemas.scene import (
     SceneCompiledScriptRead,
     SceneCreate,
     SceneDetailRead,
+    SceneExecuteResponse,
     SceneRead,
     SceneScriptCreate,
     SceneScriptRead,
@@ -24,15 +26,19 @@ from app.schemas.scene import (
 from app.schemas.script import ScriptRead
 from app.services.scene_compiler import (
     SceneCompileError,
+    apply_task_variable_meta,
     compile_scene_script,
     dump_task_snapshot,
     extract_script_env,
     find_script_task,
+    load_task_snapshot,
+    merge_task_variable_meta,
     parse_script_tasks,
     scene_task_sync_status,
     task_snapshot_key,
+    task_snapshot_variable_meta,
 )
-from app.services.run_service import create_scene_run, start_run_async
+from app.services.http_executor import HttpExecutionError, execute_scene_http_tasks
 
 router = APIRouter(prefix="/api/scenes", tags=["scenes"])
 
@@ -109,6 +115,7 @@ def _serialize_scene_task_item(db: Session, task_item: SceneTaskItem, script: Sc
         task_name_snapshot=task_item.task_name_snapshot,
         task_content_snapshot=task_item.task_content_snapshot,
     )
+    variable_meta = task_snapshot_variable_meta(task_item.task_content_snapshot)
     return SceneTaskItemRead.model_validate(
         {
             "id": task_item.id,
@@ -123,6 +130,8 @@ def _serialize_scene_task_item(db: Session, task_item: SceneTaskItem, script: Sc
             "created_at": task_item.created_at,
             "sync_status": sync_status,
             "sync_message": sync_message,
+            "input_bindings": variable_meta["inputs"],
+            "output_variables": variable_meta["outputs"],
             "script": _script_read_payload(db, script),
         }
     )
@@ -226,6 +235,37 @@ def _build_scene_detail(db: Session, scene: Scene) -> SceneDetailRead:
     )
 
 
+def _execute_scene(db: Session, scene: Scene, compiled: SceneCompiledScriptRead) -> SceneExecuteResponse:
+    try:
+        execution = execute_scene_http_tasks(
+            task_snapshots=[
+                item.task_content_snapshot
+                for item in db.scalars(
+                    select(SceneTaskItem)
+                    .where(SceneTaskItem.scene_id == scene.id)
+                    .order_by(SceneTaskItem.sort_order.asc(), SceneTaskItem.id.asc())
+                ).all()
+            ],
+            timeout_sec=settings.scene_http_timeout_sec,
+        )
+    except HttpExecutionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    return SceneExecuteResponse(
+        scene_id=scene.id,
+        scene_name=scene.name,
+        script_count=compiled.script_count,
+        task_count=compiled.task_count,
+        success=bool(execution["success"]),
+        message=str(execution["message"]),
+        outputs=execution["outputs"],
+        detail={"task_results": execution["task_results"]},
+    )
+
+
 @router.get("", response_model=list[SceneRead])
 def list_scenes(db: Session = Depends(get_db)) -> list[SceneRead]:
     return [_serialize_scene(scene, script_count) for scene, script_count in db.execute(_scene_list_stmt()).all()]
@@ -258,13 +298,38 @@ def copy_scene(scene_id: int, db: Session = Depends(get_db)) -> SceneDetailRead:
             .order_by(SceneScript.sort_order.asc(), SceneScript.id.asc())
         ).all()
     )
+    copied_relation_ids_by_script: dict[int, list[int]] = {}
     for relation in origin_relations:
+        copied_relation = SceneScript(
+            scene_id=copied.id,
+            script_id=relation.script_id,
+            sort_order=relation.sort_order,
+            remark=relation.remark,
+        )
+        db.add(copied_relation)
+        db.flush()
+        copied_relation_ids_by_script.setdefault(relation.script_id, []).append(copied_relation.id)
+
+    origin_task_items = list(
+        db.scalars(
+            select(SceneTaskItem)
+            .where(SceneTaskItem.scene_id == scene_id)
+            .order_by(SceneTaskItem.sort_order.asc(), SceneTaskItem.id.asc())
+        ).all()
+    )
+    for item in origin_task_items:
+        copied_relation_ids = copied_relation_ids_by_script.get(item.script_id, [])
+        copied_scene_script_id = copied_relation_ids.pop(0) if copied_relation_ids else None
         db.add(
-            SceneScript(
+            SceneTaskItem(
                 scene_id=copied.id,
-                script_id=relation.script_id,
-                sort_order=relation.sort_order,
-                remark=relation.remark,
+                script_id=item.script_id,
+                scene_script_id=copied_scene_script_id,
+                task_index=item.task_index,
+                task_name_snapshot=item.task_name_snapshot,
+                task_content_snapshot=item.task_content_snapshot,
+                sort_order=item.sort_order,
+                remark=item.remark,
             )
         )
 
@@ -437,15 +502,31 @@ def update_scene_task_item(
     task_item = db.get(SceneTaskItem, item_id)
     if not task_item or task_item.scene_id != scene_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scene task item not found")
+    script = db.get(Script, task_item.script_id)
+    if not script:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Script not found")
     if payload.sort_order is not None:
         task_item.sort_order = payload.sort_order
     if payload.remark is not None:
         task_item.remark = payload.remark
+    if payload.input_bindings is not None or payload.output_variables is not None:
+        current_meta = task_snapshot_variable_meta(task_item.task_content_snapshot)
+        next_task = apply_task_variable_meta(
+            load_task_snapshot(task_item.task_content_snapshot),
+            input_bindings=(
+                [item.model_dump() for item in payload.input_bindings]
+                if payload.input_bindings is not None
+                else current_meta["inputs"]
+            ),
+            output_variables=(
+                [item.model_dump() for item in payload.output_variables]
+                if payload.output_variables is not None
+                else current_meta["outputs"]
+            ),
+        )
+        task_item.task_content_snapshot = dump_task_snapshot(next_task)
     db.commit()
     db.refresh(task_item)
-    script = db.get(Script, task_item.script_id)
-    if not script:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Script not found")
     return _serialize_scene_task_item(db, task_item, script)
 
 
@@ -472,8 +553,15 @@ def sync_scene_task_item(scene_id: int, item_id: int, db: Session = Depends(get_
     if not matched_task:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task not found in current script")
 
+    current_meta = task_snapshot_variable_meta(task_item.task_content_snapshot)
     task_item.task_name_snapshot = matched_task["task_name"]
-    task_item.task_content_snapshot = dump_task_snapshot(matched_task["task"])
+    task_item.task_content_snapshot = dump_task_snapshot(
+        merge_task_variable_meta(
+            matched_task["task"],
+            input_bindings=current_meta["inputs"],
+            output_variables=current_meta["outputs"],
+        )
+    )
     db.commit()
     db.refresh(task_item)
     return _serialize_scene_task_item(db, task_item, script)
@@ -508,7 +596,14 @@ def sync_scene_task_items(scene_id: int, db: Session = Depends(get_db)) -> Scene
             missing_count += 1
             continue
         next_name = matched_task["task_name"]
-        next_snapshot = dump_task_snapshot(matched_task["task"])
+        current_meta = task_snapshot_variable_meta(item.task_content_snapshot)
+        next_snapshot = dump_task_snapshot(
+            merge_task_variable_meta(
+                matched_task["task"],
+                input_bindings=current_meta["inputs"],
+                output_variables=current_meta["outputs"],
+            )
+        )
         if next_name == item.task_name_snapshot and task_snapshot_key(next_snapshot) == task_snapshot_key(
             item.task_content_snapshot
         ):
@@ -531,13 +626,8 @@ def get_scene_compiled_script(scene_id: int, db: Session = Depends(get_db)) -> S
     return _compiled_scene_script(db, scene)
 
 
-@router.post("/{scene_id}/runs", status_code=status.HTTP_201_CREATED)
-def create_scene_run_task(scene_id: int, db: Session = Depends(get_db)) -> dict:
-    try:
-        run = create_scene_run(db, scene_id)
-    except ValueError as exc:
-        detail = str(exc)
-        status_code = status.HTTP_404_NOT_FOUND if detail in {"Scene not found"} else status.HTTP_400_BAD_REQUEST
-        raise HTTPException(status_code=status_code, detail=detail) from exc
-    start_run_async(run.id)
-    return {"run_id": run.id}
+@router.post("/{scene_id}/execute", response_model=SceneExecuteResponse)
+def execute_scene(scene_id: int, db: Session = Depends(get_db)) -> SceneExecuteResponse:
+    scene = _get_scene_or_404(db, scene_id)
+    compiled = _compiled_scene_script(db, scene)
+    return _execute_scene(db, scene, compiled)

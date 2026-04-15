@@ -3,34 +3,25 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = BACKEND_ROOT.parent
 
 
 class Settings(BaseSettings):
     app_name: str = "UI自动化脚本 API"
     app_env: str = "dev"
-    database_url: str = "mysql+pymysql://root:password@localhost:3306/ui_demo?charset=utf8mb4"
-    run_scripts_dir: str = "./runtime/scripts"
-    run_command_prefix: str = "npx midscene"
-    midscene_base_url: str = "http://localhost:5800"
-    midscene_timeout_sec: int = 10
-    midscene_status_poll_interval_ms: int = 2000
+    database_url: str
     db_pool_size: int = 20
     db_max_overflow: int = 40
     db_pool_timeout_sec: int = 30
-    report_root_dir: str = "./midscene_run/report"
-    llm_base_url: str = ""
-    llm_api_key: str = ""
-    llm_model_name: str = ""
-    llm_timeout_sec: int = 60
-    llm_generation_system_prompt: str = ""
-    llm_generation_system_prompt_file: str = ""
-    midscene_model_base_url: str = ""
-    midscene_model_api_key: str = ""
-    midscene_model_name: str = ""
-    midscene_model_family: str = ""
+    scene_http_timeout_sec: float = 30.0
+    # 兼容 getresult-flow.ts 这类外部脚本里已有的变量配置，给场景执行提供兜底值。
+    getresult_cookie: str | None = None
+    getresult_uid: str | None = None
+    getresult_address_id: str | None = None
+    getresult_appointment_time: str | None = None
 
     model_config = SettingsConfigDict(
-        env_file=(str(BACKEND_ROOT / ".env"), ".env"),
+        env_file=(str(PROJECT_ROOT / ".env"),),
         extra="ignore",
     )
 

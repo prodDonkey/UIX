@@ -11,9 +11,6 @@
             <el-button @click="goBack">返回列表</el-button>
             <el-button @click="copyCurrentScene">复制场景</el-button>
             <el-button @click="showPicker = true">添加脚本</el-button>
-            <el-button type="success" plain :disabled="taskItems.length === 0" @click="runScene">
-              执行整个场景
-            </el-button>
             <el-button type="primary" @click="save">保存</el-button>
           </div>
         </div>
@@ -77,7 +74,6 @@
         </el-table-column>
         <el-table-column label="操作" width="250" fixed="right">
           <template #default="{ row, $index }">
-            <el-button size="small" type="success" plain @click="runScript(row.script_id)">运行</el-button>
             <el-button size="small" :disabled="$index === 0" @click="moveRelation($index, -1)">上移</el-button>
             <el-button size="small" :disabled="$index === relations.length - 1" @click="moveRelation($index, 1)">下移</el-button>
             <el-button size="small" type="danger" @click="removeRelation(row.id)">移除</el-button>
@@ -98,6 +94,14 @@
               @click="syncAllTaskItems"
             >
               {{ syncingAllTasks ? '同步中...' : `同步全部变更${syncableTaskCount > 0 ? ` (${syncableTaskCount})` : ''}` }}
+            </el-button>
+            <el-button
+              type="success"
+              :loading="executingScene"
+              :disabled="taskItems.length === 0"
+              @click="executeScene"
+            >
+              {{ executingScene ? '执行中...' : '执行场景' }}
             </el-button>
             <el-button type="primary" plain :disabled="taskItems.length === 0" @click="previewCompiledScript">
               预览场景脚本
@@ -193,6 +197,9 @@
                   placeholder="可填写该任务在场景中的用途"
                   @change="(value) => updateTaskRemark(row.id, String(value ?? ''))"
                 />
+                <div class="task-variable-summary">
+                  出参 {{ row.output_variables.length }} / 入参 {{ row.input_bindings.length }}
+                </div>
               </div>
               <div class="task-col-action">
                 <el-button
@@ -204,6 +211,7 @@
                 >
                   同步
                 </el-button>
+                <el-button size="small" plain @click="openVariableDialog(row)">变量</el-button>
                 <el-button size="small" type="danger" @click="removeTaskItem(row.id)">移除</el-button>
               </div>
             </div>
@@ -233,6 +241,65 @@
       </template>
       <pre class="compiled-preview"><code>{{ compiledYaml }}</code></pre>
     </el-dialog>
+
+    <el-dialog
+      v-model="executeResultVisible"
+      width="min(760px, 92vw)"
+      destroy-on-close
+    >
+      <template #header>
+        <div class="dialog-header">
+          <strong>场景执行结果</strong>
+          <span class="dialog-desc">{{ executeResult?.scene_name || '-' }}</span>
+        </div>
+      </template>
+      <div v-if="executeResult" class="execute-result">
+        <div class="execute-result-line"><strong>消息：</strong>{{ executeResult.message }}</div>
+        <div class="execute-result-line"><strong>结果：</strong>{{ executeResult.success ? '成功' : '失败' }}</div>
+        <div class="execute-result-line"><strong>任务数：</strong>{{ executeResult.task_count }}</div>
+        <div class="execute-result-line" v-if="Object.keys(executeResult.outputs || {}).length > 0">
+          <strong>输出变量：</strong>{{ JSON.stringify(executeResult.outputs) }}
+        </div>
+        <pre v-if="executeResult.detail" class="compiled-preview"><code>{{ formatExecuteDetail(executeResult.detail) }}</code></pre>
+      </div>
+    </el-dialog>
+
+    <el-dialog
+      v-model="variableDialogVisible"
+      width="min(720px, 92vw)"
+      destroy-on-close
+    >
+      <template #header>
+        <div class="dialog-header">
+          <strong>任务变量配置</strong>
+          <span class="dialog-desc">{{ variableDialogTask?.task_name_snapshot || '-' }}</span>
+        </div>
+      </template>
+
+      <el-form label-position="top">
+        <el-form-item label="输出变量定义">
+          <el-input
+            v-model="variableOutputsText"
+            type="textarea"
+            :rows="8"
+            placeholder='示例：[{"name":"recycleOrderId","source_path":"respMsg.data.fields.recycleOrderId","description":"下单返回单号"}]'
+          />
+        </el-form-item>
+        <el-form-item label="输入变量映射">
+          <el-input
+            v-model="variableInputsText"
+            type="textarea"
+            :rows="8"
+            placeholder='示例：[{"target_path":"interface.params.orderNo","expression":"${recycleOrderId}","description":"引用上一步生成单号"}]'
+          />
+        </el-form-item>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="variableDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="savingVariableConfig" @click="saveVariableConfig">保存变量配置</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -241,8 +308,15 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import { sceneApi, type SceneScriptRelation, type SceneTaskItem, type ScriptTask } from '../api/scenes';
-import { runApi } from '../api/runs';
+import {
+  sceneApi,
+  type SceneExecuteResult,
+  type SceneScriptRelation,
+  type SceneTaskInputBinding,
+  type SceneTaskItem,
+  type SceneTaskOutputVariable,
+  type ScriptTask,
+} from '../api/scenes';
 import { scriptApi, type Script } from '../api/scripts';
 import SceneScriptPicker from '../components/SceneScriptPicker.vue';
 import { formatServerDateTime } from '../utils/datetime';
@@ -262,6 +336,14 @@ const scriptTasksMap = ref<Record<number, ScriptTask[]>>({});
 const scripts = ref<Script[]>([]);
 const compiledPreviewVisible = ref(false);
 const compiledYaml = ref('');
+const executeResultVisible = ref(false);
+const executeResult = ref<SceneExecuteResult | null>(null);
+const executingScene = ref(false);
+const variableDialogVisible = ref(false);
+const variableDialogTask = ref<SceneTaskItem | null>(null);
+const variableOutputsText = ref('[]');
+const variableInputsText = ref('[]');
+const savingVariableConfig = ref(false);
 const draggingTaskIndex = ref<number | null>(null);
 const draggingTaskItemId = ref<number | null>(null);
 const dropTaskItemId = ref<number | null>(null);
@@ -401,6 +483,47 @@ async function updateTaskRemark(itemId: number, remark: string) {
   const target = taskItems.value.find((item) => item.id === itemId);
   if (target) target.remark = remark;
   ElMessage.success('任务备注已更新');
+}
+
+function openVariableDialog(row: SceneTaskItem) {
+  variableDialogTask.value = row;
+  variableOutputsText.value = JSON.stringify(row.output_variables || [], null, 2);
+  variableInputsText.value = JSON.stringify(row.input_bindings || [], null, 2);
+  variableDialogVisible.value = true;
+}
+
+async function saveVariableConfig() {
+  if (!variableDialogTask.value) return;
+
+  let outputVariables: SceneTaskOutputVariable[] = [];
+  let inputBindings: SceneTaskInputBinding[] = [];
+  try {
+    outputVariables = JSON.parse(variableOutputsText.value || '[]');
+    inputBindings = JSON.parse(variableInputsText.value || '[]');
+  } catch (error) {
+    ElMessage.error('变量配置 JSON 格式不正确');
+    return;
+  }
+
+  savingVariableConfig.value = true;
+  try {
+    const updated = await sceneApi.updateTaskItem(sceneId.value, variableDialogTask.value.id, {
+      output_variables: outputVariables,
+      input_bindings: inputBindings,
+      sort_order: variableDialogTask.value.sort_order,
+      remark: variableDialogTask.value.remark,
+    });
+    const target = taskItems.value.find((item) => item.id === updated.id);
+    if (target) {
+      Object.assign(target, updated);
+    }
+    variableDialogVisible.value = false;
+    ElMessage.success('变量配置已保存');
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.detail || '保存变量配置失败');
+  } finally {
+    savingVariableConfig.value = false;
+  }
 }
 
 async function syncTaskItem(itemId: number) {
@@ -547,22 +670,24 @@ async function copyCurrentScene() {
   await router.push({ name: 'scene-detail', params: { id: copied.id } });
 }
 
-async function runScript(scriptId: number) {
-  const run = await runApi.create(scriptId);
-  ElMessage.success(`任务已创建 #${run.id}`);
-  await router.push({ name: 'run-detail', params: { id: run.id } });
-}
-
 async function previewCompiledScript() {
   const compiled = await sceneApi.getCompiledScript(sceneId.value);
   compiledYaml.value = compiled.yaml;
   compiledPreviewVisible.value = true;
 }
 
-async function runScene() {
-  const created = await sceneApi.runScene(sceneId.value);
-  ElMessage.success(`场景任务已创建 #${created.run_id}`);
-  await router.push({ name: 'run-detail', params: { id: created.run_id } });
+async function executeScene() {
+  executingScene.value = true;
+  try {
+    const result = await sceneApi.execute(sceneId.value);
+    executeResult.value = result;
+    executeResultVisible.value = true;
+    ElMessage.success(result.message);
+  } catch (error: any) {
+    ElMessage.error(error?.response?.data?.detail || '场景执行失败');
+  } finally {
+    executingScene.value = false;
+  }
 }
 
 function goBack() {
@@ -575,7 +700,6 @@ function goScript(scriptId: number) {
 
 function formatSourceType(sourceType: string) {
   if (sourceType === 'manual') return '手动';
-  if (sourceType === 'ai') return 'AI生成';
   return sourceType || '-';
 }
 
@@ -591,6 +715,11 @@ function syncStatusTagType(status: string) {
   if (status === 'stale') return 'warning';
   if (status === 'missing') return 'danger';
   return 'info';
+}
+
+function formatExecuteDetail(detail: SceneExecuteResult['detail']) {
+  if (typeof detail === 'string') return detail;
+  return JSON.stringify(detail, null, 2);
 }
 </script>
 
@@ -770,6 +899,23 @@ function syncStatusTagType(status: string) {
   color: #6b7280;
   font-size: 12px;
   line-height: 1.4;
+}
+
+.task-variable-summary {
+  margin-top: 6px;
+  color: #6b7280;
+  font-size: 12px;
+}
+
+.execute-result {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.execute-result-line {
+  color: #374151;
+  line-height: 1.5;
 }
 
 .task-col-action {

@@ -1,29 +1,28 @@
 from __future__ import annotations
 
+import json
+import os
 from collections.abc import Generator
-from pathlib import Path
-
+from types import SimpleNamespace
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.api.runs import router as runs_router
 from app.api.scenes import router as scenes_router
 from app.api.scripts import router as scripts_router
 from app.core.database import Base, get_db
 
 
-def _build_test_client(tmp_path: Path) -> TestClient:
-    db_file = tmp_path / "test-scenes.db"
-    engine = create_engine(f"sqlite:///{db_file}", connect_args={"check_same_thread": False})
-    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+def _build_test_client() -> TestClient:
+    engine = create_engine(os.environ["TEST_DATABASE_URL"], pool_pre_ping=True)
+    Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
+    testing_session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
     app = FastAPI()
     app.include_router(scripts_router)
     app.include_router(scenes_router)
-    app.include_router(runs_router)
 
     def override_get_db() -> Generator[Session, None, None]:
         db = testing_session_local()
@@ -36,8 +35,8 @@ def _build_test_client(tmp_path: Path) -> TestClient:
     return TestClient(app)
 
 
-def test_scene_crud_and_script_binding(tmp_path: Path) -> None:
-    client = _build_test_client(tmp_path)
+def test_scene_crud_and_script_binding() -> None:
+    client = _build_test_client()
 
     first_script = client.post(
         "/api/scripts",
@@ -121,8 +120,8 @@ def test_scene_crud_and_script_binding(tmp_path: Path) -> None:
     assert script_still_exists.status_code == 200
 
 
-def test_scene_task_items_and_compiled_script(tmp_path: Path) -> None:
-    client = _build_test_client(tmp_path)
+def test_scene_task_items_and_compiled_script() -> None:
+    client = _build_test_client()
 
     script_response = client.post(
         "/api/scripts",
@@ -204,59 +203,8 @@ def test_scene_task_items_and_compiled_script(tmp_path: Path) -> None:
     assert len(item_list.json()) == 1
 
 
-def test_scene_run_creates_run_with_compiled_snapshot(tmp_path: Path, monkeypatch) -> None:
-    client = _build_test_client(tmp_path)
-    monkeypatch.setattr("app.api.scenes.start_run_async", lambda run_id: None)
-
-    script_response = client.post(
-        "/api/scripts",
-        json={
-            "name": "回收脚本",
-            "content": (
-                "android:\n"
-                "  deviceId: ''\n"
-                "tasks:\n"
-                "  - name: 前往服务\n"
-                "    flow:\n"
-                "      - aiAction: 点击待上门订单\n"
-            ),
-            "source_type": "manual",
-        },
-    )
-    assert script_response.status_code == 201
-    script_id = script_response.json()["id"]
-
-    scene_response = client.post(
-        "/api/scenes",
-        json={"name": "回收一段流程", "description": "场景执行", "source_type": "manual"},
-    )
-    assert scene_response.status_code == 201
-    scene_id = scene_response.json()["id"]
-
-    bind_response = client.post(f"/api/scenes/{scene_id}/scripts", json={"script_id": script_id, "remark": "来源脚本"})
-    assert bind_response.status_code == 201
-
-    add_task = client.post(
-        f"/api/scenes/{scene_id}/task-items",
-        json={"script_id": script_id, "task_index": 0, "remark": "执行 task"},
-    )
-    assert add_task.status_code == 201
-
-    created_run = client.post(f"/api/scenes/{scene_id}/runs")
-    assert created_run.status_code == 201
-    run_id = created_run.json()["run_id"]
-
-    run_detail = client.get(f"/api/runs/{run_id}")
-    assert run_detail.status_code == 200
-    payload = run_detail.json()
-    assert payload["scene_id"] == scene_id
-    assert payload["scene_name_snapshot"] == "回收一段流程"
-    assert payload["script_id"] == script_id
-    assert "name: 前往服务" in payload["script_content_snapshot"]
-
-
-def test_scene_task_items_detect_and_sync_script_changes(tmp_path: Path) -> None:
-    client = _build_test_client(tmp_path)
+def test_scene_task_items_detect_and_sync_script_changes() -> None:
+    client = _build_test_client()
 
     script_response = client.post(
         "/api/scripts",
@@ -328,3 +276,1055 @@ def test_scene_task_items_detect_and_sync_script_changes(tmp_path: Path) -> None
     assert sync_payload["missing_count"] == 1
     assert sync_payload["task_items"][0]["sync_status"] == "current"
     assert sync_payload["task_items"][1]["sync_status"] == "missing"
+
+
+def test_copy_scene_keeps_task_item_relation_binding() -> None:
+    client = _build_test_client()
+
+    script_response = client.post(
+        "/api/scripts",
+        json={
+            "name": "复制关联脚本",
+            "content": (
+                "tasks:\n"
+                "  - name: 第一步\n"
+                "    flow:\n"
+                "      - aiAction: 点击第一步\n"
+            ),
+            "source_type": "manual",
+        },
+    )
+    assert script_response.status_code == 201
+    script_id = script_response.json()["id"]
+
+    scene_response = client.post(
+        "/api/scenes",
+        json={"name": "原场景", "description": "", "source_type": "manual"},
+    )
+    assert scene_response.status_code == 201
+    scene_id = scene_response.json()["id"]
+
+    bind_response = client.post(
+        f"/api/scenes/{scene_id}/scripts",
+        json={"script_id": script_id, "remark": "原始脚本"},
+    )
+    assert bind_response.status_code == 201
+    relation_id = bind_response.json()["id"]
+
+    item_response = client.post(
+        f"/api/scenes/{scene_id}/task-items",
+        json={"script_id": script_id, "task_index": 0},
+    )
+    assert item_response.status_code == 201
+    assert item_response.json()["scene_script_id"] == relation_id
+
+    copied_scene = client.post(f"/api/scenes/{scene_id}/copy")
+    assert copied_scene.status_code == 201
+    copied_payload = copied_scene.json()
+    copied_scene_id = copied_payload["id"]
+    copied_relation_id = copied_payload["scripts"][0]["id"]
+
+    copied_item = copied_payload["task_items"][0]
+    assert copied_item["scene_script_id"] == copied_relation_id
+
+    delete_copied_relation = client.delete(f"/api/scenes/{copied_scene_id}/scripts/{copied_relation_id}")
+    assert delete_copied_relation.status_code == 204
+
+    copied_items = client.get(f"/api/scenes/{copied_scene_id}/task-items")
+    assert copied_items.status_code == 200
+    assert copied_items.json() == []
+
+
+def test_scene_task_items_support_variable_binding_and_validation() -> None:
+    client = _build_test_client()
+
+    script_response = client.post(
+        "/api/scripts",
+        json={
+            "name": "接口链路脚本",
+            "content": (
+                "tasks:\n"
+                "  - name: 下单\n"
+                "    flow:\n"
+                "      - aiAction: 调用下单接口\n"
+                "  - name: 分配\n"
+                "    flow:\n"
+                "      - aiAction: 调用分配接口\n"
+                "  - name: 用户确认\n"
+                "    flow:\n"
+                "      - aiAction: 调用确认接口\n"
+            ),
+            "source_type": "manual",
+        },
+    )
+    assert script_response.status_code == 201
+    script_id = script_response.json()["id"]
+
+    scene_response = client.post(
+        "/api/scenes",
+        json={"name": "变量传递场景", "description": "", "source_type": "manual"},
+    )
+    assert scene_response.status_code == 201
+    scene_id = scene_response.json()["id"]
+
+    bind_response = client.post(f"/api/scenes/{scene_id}/scripts", json={"script_id": script_id})
+    assert bind_response.status_code == 201
+
+    order_item = client.post(f"/api/scenes/{scene_id}/task-items", json={"script_id": script_id, "task_index": 0})
+    assign_item = client.post(f"/api/scenes/{scene_id}/task-items", json={"script_id": script_id, "task_index": 1})
+    assert order_item.status_code == 201
+    assert assign_item.status_code == 201
+
+    configured_order = client.put(
+        f"/api/scenes/{scene_id}/task-items/{order_item.json()['id']}",
+        json={
+            "sort_order": 1,
+            "output_variables": [
+                {
+                    "name": "recycleOrderId",
+                    "source_path": "respMsg.data.fields.recycleOrderId",
+                    "description": "下单返回单号",
+                }
+            ],
+        },
+    )
+    assert configured_order.status_code == 200
+    assert configured_order.json()["output_variables"][0]["name"] == "recycleOrderId"
+
+    configured_assign = client.put(
+        f"/api/scenes/{scene_id}/task-items/{assign_item.json()['id']}",
+        json={
+            "sort_order": 2,
+            "input_bindings": [
+                {
+                    "target_path": "interface.params.orderNo",
+                    "expression": "${recycleOrderId}",
+                    "description": "引用上一步单号",
+                }
+            ],
+        },
+    )
+    assert configured_assign.status_code == 200
+    assert configured_assign.json()["input_bindings"][0]["expression"] == "${recycleOrderId}"
+
+    compiled = client.get(f"/api/scenes/{scene_id}/compiled-script")
+    assert compiled.status_code == 200
+    compiled_yaml = compiled.json()["yaml"]
+    assert "sceneVariables:" in compiled_yaml
+    assert "name: recycleOrderId" in compiled_yaml
+    assert "expression: ${recycleOrderId}" in compiled_yaml
+
+    invalid_scene = client.post(
+        "/api/scenes",
+        json={"name": "非法变量场景", "description": "", "source_type": "manual"},
+    )
+    assert invalid_scene.status_code == 201
+    invalid_scene_id = invalid_scene.json()["id"]
+    bind_invalid = client.post(f"/api/scenes/{invalid_scene_id}/scripts", json={"script_id": script_id})
+    assert bind_invalid.status_code == 201
+    invalid_item = client.post(
+        f"/api/scenes/{invalid_scene_id}/task-items",
+        json={"script_id": script_id, "task_index": 1},
+    )
+    assert invalid_item.status_code == 201
+    update_invalid = client.put(
+        f"/api/scenes/{invalid_scene_id}/task-items/{invalid_item.json()['id']}",
+        json={
+            "input_bindings": [
+                {
+                    "target_path": "interface.params.orderNo",
+                    "expression": "${missingOrderNo}",
+                    "description": "引用不存在变量",
+                }
+            ],
+        },
+    )
+    assert update_invalid.status_code == 200
+
+    invalid_compiled = client.get(f"/api/scenes/{invalid_scene_id}/compiled-script")
+    assert invalid_compiled.status_code == 400
+    assert "未定义变量" in invalid_compiled.json()["detail"]
+
+
+def test_scene_task_items_detect_script_side_variable_meta_changes() -> None:
+    client = _build_test_client()
+
+    script_response = client.post(
+        "/api/scripts",
+        json={
+            "name": "变量元数据脚本",
+            "content": (
+                "tasks:\n"
+                "  - name: 下单\n"
+                "    flow:\n"
+                "      - aiAction: 调用下单接口\n"
+            ),
+            "source_type": "manual",
+        },
+    )
+    assert script_response.status_code == 201
+    script_id = script_response.json()["id"]
+
+    scene_response = client.post(
+        "/api/scenes",
+        json={"name": "变量元数据同步场景", "description": "", "source_type": "manual"},
+    )
+    assert scene_response.status_code == 201
+    scene_id = scene_response.json()["id"]
+
+    bind_response = client.post(f"/api/scenes/{scene_id}/scripts", json={"script_id": script_id})
+    assert bind_response.status_code == 201
+
+    item_response = client.post(
+        f"/api/scenes/{scene_id}/task-items",
+        json={"script_id": script_id, "task_index": 0},
+    )
+    assert item_response.status_code == 201
+    item_id = item_response.json()["id"]
+    assert item_response.json()["sync_status"] == "current"
+
+    updated_script = client.put(
+        f"/api/scripts/{script_id}",
+        json={
+            "name": "变量元数据脚本",
+            "content": (
+                "tasks:\n"
+                "  - name: 下单\n"
+                "    sceneVariables:\n"
+                "      outputs:\n"
+                "        - name: recycleOrderId\n"
+                "          source_path: respMsg.data.fields.recycleOrderId\n"
+                "          description: 下单返回单号\n"
+                "    flow:\n"
+                "      - aiAction: 调用下单接口\n"
+            ),
+            "source_type": "manual",
+        },
+    )
+    assert updated_script.status_code == 200
+
+    detail = client.get(f"/api/scenes/{scene_id}")
+    assert detail.status_code == 200
+    task_item = detail.json()["task_items"][0]
+    assert task_item["sync_status"] == "stale"
+
+    synced = client.post(f"/api/scenes/{scene_id}/task-items/{item_id}/sync")
+    assert synced.status_code == 200
+    assert synced.json()["sync_status"] == "current"
+    assert synced.json()["output_variables"][0]["name"] == "recycleOrderId"
+
+
+def test_script_level_interface_is_embedded_into_task_snapshot() -> None:
+    client = _build_test_client()
+
+    script_response = client.post(
+        "/api/scripts",
+        json={
+            "name": "接口脚本",
+            "content": (
+                "interface:\n"
+                "  name: 回收单下单\n"
+                "  method: POST\n"
+                "  url: https://datapt.zhuanspirit.com/api/basicdata/getresult\n"
+                "tasks:\n"
+                "  - name: 下单\n"
+                "    flow:\n"
+                "      - aiAction: 调用下单接口\n"
+            ),
+            "source_type": "manual",
+        },
+    )
+    assert script_response.status_code == 201
+    script_id = script_response.json()["id"]
+
+    scene_response = client.post(
+        "/api/scenes",
+        json={"name": "接口脚本场景", "description": "", "source_type": "manual"},
+    )
+    assert scene_response.status_code == 201
+    scene_id = scene_response.json()["id"]
+
+    bind_response = client.post(f"/api/scenes/{scene_id}/scripts", json={"script_id": script_id})
+    assert bind_response.status_code == 201
+
+    item_response = client.post(
+        f"/api/scenes/{scene_id}/task-items",
+        json={"script_id": script_id, "task_index": 0},
+    )
+    assert item_response.status_code == 201
+    assert "interface:" in item_response.json()["task_content_snapshot"]
+
+    compiled = client.get(f"/api/scenes/{scene_id}/compiled-script")
+    assert compiled.status_code == 200
+    compiled_yaml = compiled.json()["yaml"]
+    assert "interface:" in compiled_yaml
+    assert "url: https://datapt.zhuanspirit.com/api/basicdata/getresult" in compiled_yaml
+
+
+def test_execute_scene_runs_http_interface_tasks(monkeypatch) -> None:
+    client = _build_test_client()
+
+    script_response = client.post(
+        "/api/scripts",
+        json={
+            "name": "执行脚本",
+            "content": (
+                "interface:\n"
+                "  method: POST\n"
+                "  url: https://example.test/orders\n"
+                "  contentType: application/json\n"
+                "  headers:\n"
+                "    Authorization: Bearer demo-token\n"
+                "tasks:\n"
+                "  - name: 下单\n"
+                "    sceneVariables:\n"
+                "      outputs:\n"
+                "        - name: orderNo\n"
+                "          source_path: data.orderNo\n"
+                "    flow:\n"
+                "      - aiAction: 调用下单接口\n"
+                "  - name: 查询订单\n"
+                "    interface:\n"
+                "      method: POST\n"
+                "      url: https://example.test/query\n"
+                "      contentType: application/json\n"
+                "      params:\n"
+                "        orderNo: \"\"\n"
+                "    sceneVariables:\n"
+                "      inputs:\n"
+                "        - target_path: interface.params.orderNo\n"
+                "          expression: ${orderNo}\n"
+                "      outputs:\n"
+                "        - name: orderStatus\n"
+                "          source_path: data.status\n"
+                "    flow:\n"
+                "      - aiAction: 调用查询接口\n"
+            ),
+            "source_type": "manual",
+        },
+    )
+    assert script_response.status_code == 201
+    script_id = script_response.json()["id"]
+
+    scene_response = client.post(
+        "/api/scenes",
+        json={"name": "可执行场景", "description": "", "source_type": "manual"},
+    )
+    assert scene_response.status_code == 201
+    scene_id = scene_response.json()["id"]
+
+    bind_response = client.post(f"/api/scenes/{scene_id}/scripts", json={"script_id": script_id})
+    assert bind_response.status_code == 201
+    item_response = client.post(
+        f"/api/scenes/{scene_id}/task-items",
+        json={"script_id": script_id, "task_index": 0},
+    )
+    assert item_response.status_code == 201
+    second_item_response = client.post(
+        f"/api/scenes/{scene_id}/task-items",
+        json={"script_id": script_id, "task_index": 1},
+    )
+    assert second_item_response.status_code == 201
+
+    requests: list[dict] = []
+
+    class DummyResponse:
+        def __init__(self, *, status_code: int, body: dict):
+            self.status_code = status_code
+            self._body = body
+            self.text = str(body)
+            self.headers = {"content-type": "application/json"}
+            self.request = SimpleNamespace(url="https://example.test/mock")
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return self._body
+
+    class DummyClient:
+        def __init__(self, timeout: float, follow_redirects: bool = False):
+            self.timeout = timeout
+            self.follow_redirects = follow_redirects
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def request(self, **kwargs):
+            requests.append(kwargs)
+            url = kwargs["url"]
+            if url == "https://example.test/orders":
+                return DummyResponse(status_code=200, body={"data": {"orderNo": "ORD-001"}})
+            return DummyResponse(status_code=200, body={"data": {"status": "CREATED"}})
+
+    monkeypatch.setattr("app.services.http_executor.httpx.Client", DummyClient)
+
+    execute_response = client.post(f"/api/scenes/{scene_id}/execute")
+    assert execute_response.status_code == 200
+    payload = execute_response.json()
+    assert payload["scene_id"] == scene_id
+    assert payload["success"] is True
+    assert payload["message"] == "场景执行完成"
+    assert payload["outputs"]["orderNo"] == "ORD-001"
+    assert payload["outputs"]["orderStatus"] == "CREATED"
+    assert requests[0]["url"] == "https://example.test/orders"
+    assert requests[0]["method"] == "POST"
+    assert requests[0]["headers"]["Authorization"] == "Bearer demo-token"
+    assert requests[1]["url"] == "https://example.test/query"
+    assert requests[1]["json"]["orderNo"] == "ORD-001"
+    assert payload["detail"]["task_results"][1]["outputs"]["orderStatus"] == "CREATED"
+
+
+def test_execute_scene_supports_respmsg_output_alias(monkeypatch) -> None:
+    client = _build_test_client()
+
+    script_response = client.post(
+        "/api/scripts",
+        json={
+            "name": "别名脚本",
+            "content": (
+                "interface:\n"
+                "  method: POST\n"
+                "  url: https://example.test/orders\n"
+                "  contentType: application/json\n"
+                "tasks:\n"
+                "  - name: 下单\n"
+                "    sceneVariables:\n"
+                "      outputs:\n"
+                "        - name: recycleOrderId\n"
+                "          source_path: respMsg.data.fields.recycleOrderId\n"
+                "    flow:\n"
+                "      - aiAction: 调用下单接口\n"
+            ),
+            "source_type": "manual",
+        },
+    )
+    assert script_response.status_code == 201
+    script_id = script_response.json()["id"]
+
+    scene_response = client.post(
+        "/api/scenes",
+        json={"name": "别名场景", "description": "", "source_type": "manual"},
+    )
+    assert scene_response.status_code == 201
+    scene_id = scene_response.json()["id"]
+
+    bind_response = client.post(f"/api/scenes/{scene_id}/scripts", json={"script_id": script_id})
+    assert bind_response.status_code == 201
+    item_response = client.post(
+        f"/api/scenes/{scene_id}/task-items",
+        json={"script_id": script_id, "task_index": 0},
+    )
+    assert item_response.status_code == 201
+
+    class DummyResponse:
+        def __init__(self):
+            self.status_code = 200
+            self.text = '{"data":{"fields":{"recycleOrderId":"RID-001"}}}'
+            self.headers = {"content-type": "application/json"}
+            self.request = SimpleNamespace(url="https://example.test/orders")
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"data": {"fields": {"recycleOrderId": "RID-001"}}}
+
+    class DummyClient:
+        def __init__(self, timeout: float, follow_redirects: bool = False):
+            self.timeout = timeout
+            self.follow_redirects = follow_redirects
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def request(self, **kwargs):
+            return DummyResponse()
+
+    monkeypatch.setattr("app.services.http_executor.httpx.Client", DummyClient)
+
+    execute_response = client.post(f"/api/scenes/{scene_id}/execute")
+    assert execute_response.status_code == 200
+    payload = execute_response.json()
+    assert payload["success"] is True
+    assert payload["outputs"]["recycleOrderId"] == "RID-001"
+
+
+def test_execute_scene_extracts_from_stringified_respmsg(monkeypatch) -> None:
+    client = _build_test_client()
+
+    script_response = client.post(
+        "/api/scripts",
+        json={
+            "name": "字符串 respMsg 脚本",
+            "content": (
+                "interface:\n"
+                "  method: POST\n"
+                "  url: https://example.test/orders\n"
+                "  contentType: application/json\n"
+                "tasks:\n"
+                "  - name: 下单\n"
+                "    sceneVariables:\n"
+                "      outputs:\n"
+                "        - name: recycleOrderId\n"
+                "          source_path: respMsg.data.fields.recycleOrderId\n"
+                "    flow:\n"
+                "      - aiAction: 调用下单接口\n"
+            ),
+            "source_type": "manual",
+        },
+    )
+    assert script_response.status_code == 201
+    script_id = script_response.json()["id"]
+
+    scene_response = client.post(
+        "/api/scenes",
+        json={"name": "字符串 respMsg 场景", "description": "", "source_type": "manual"},
+    )
+    assert scene_response.status_code == 201
+    scene_id = scene_response.json()["id"]
+
+    bind_response = client.post(f"/api/scenes/{scene_id}/scripts", json={"script_id": script_id})
+    assert bind_response.status_code == 201
+    item_response = client.post(
+        f"/api/scenes/{scene_id}/task-items",
+        json={"script_id": script_id, "task_index": 0},
+    )
+    assert item_response.status_code == 201
+
+    class DummyResponse:
+        def __init__(self):
+            self.status_code = 200
+            self.text = '{"respMsg":"{\\"code\\":0,\\"data\\":{\\"fields\\":{\\"recycleOrderId\\":\\"RID-STR\\"}}}"}'
+            self.headers = {"content-type": "application/json"}
+            self.request = SimpleNamespace(url="https://example.test/orders")
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"respMsg": '{"code":0,"data":{"fields":{"recycleOrderId":"RID-STR"}}}'}
+
+    class DummyClient:
+        def __init__(self, timeout: float, follow_redirects: bool = False):
+            self.timeout = timeout
+            self.follow_redirects = follow_redirects
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def request(self, **kwargs):
+            return DummyResponse()
+
+    monkeypatch.setattr("app.services.http_executor.httpx.Client", DummyClient)
+
+    execute_response = client.post(f"/api/scenes/{scene_id}/execute")
+    assert execute_response.status_code == 200
+    payload = execute_response.json()
+    assert payload["success"] is True
+    assert payload["outputs"]["recycleOrderId"] == "RID-STR"
+
+
+def test_execute_scene_reports_cookie_expired_error(monkeypatch) -> None:
+    client = _build_test_client()
+
+    script_response = client.post(
+        "/api/scripts",
+        json={
+            "name": "Cookie 失效脚本",
+            "content": (
+                "interface:\n"
+                "  method: POST\n"
+                "  url: https://example.test/orders\n"
+                "  contentType: application/json\n"
+                "tasks:\n"
+                "  - name: 下单\n"
+                "    sceneVariables:\n"
+                "      outputs:\n"
+                "        - name: recycleOrderId\n"
+                "          source_path: respMsg.data.fields.recycleOrderId\n"
+                "    flow:\n"
+                "      - aiAction: 调用下单接口\n"
+            ),
+            "source_type": "manual",
+        },
+    )
+    assert script_response.status_code == 201
+    script_id = script_response.json()["id"]
+
+    scene_response = client.post(
+        "/api/scenes",
+        json={"name": "Cookie 失效场景", "description": "", "source_type": "manual"},
+    )
+    assert scene_response.status_code == 201
+    scene_id = scene_response.json()["id"]
+
+    bind_response = client.post(f"/api/scenes/{scene_id}/scripts", json={"script_id": script_id})
+    assert bind_response.status_code == 201
+    item_response = client.post(
+        f"/api/scenes/{scene_id}/task-items",
+        json={"script_id": script_id, "task_index": 0},
+    )
+    assert item_response.status_code == 201
+
+    class DummyResponse:
+        def __init__(self):
+            self.status_code = 200
+            self.text = '{"status":-3,"desc":"调用接口错误","data":null}'
+            self.headers = {"content-type": "application/json"}
+            self.request = SimpleNamespace(url="https://zzsso.zhuanspirit.com/login")
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"status": -3, "desc": "调用接口错误", "data": None}
+
+    class DummyClient:
+        def __init__(self, timeout: float, follow_redirects: bool = False):
+            self.timeout = timeout
+            self.follow_redirects = follow_redirects
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def request(self, **kwargs):
+            return DummyResponse()
+
+    monkeypatch.setattr("app.services.http_executor.httpx.Client", DummyClient)
+
+    execute_response = client.post(f"/api/scenes/{scene_id}/execute")
+    assert execute_response.status_code == 200
+    payload = execute_response.json()
+    assert payload["success"] is False
+    assert payload["detail"]["task_results"][0]["error"] == "接口调用失败：登录态已失效，需要重新登录后刷新 Cookie"
+
+
+def test_execute_scene_reports_business_error_from_respmsg(monkeypatch) -> None:
+    client = _build_test_client()
+
+    script_response = client.post(
+        "/api/scripts",
+        json={
+            "name": "业务失败脚本",
+            "content": (
+                "interface:\n"
+                "  method: POST\n"
+                "  url: https://example.test/orders\n"
+                "  contentType: application/json\n"
+                "tasks:\n"
+                "  - name: 下单\n"
+                "    sceneVariables:\n"
+                "      outputs:\n"
+                "        - name: recycleOrderId\n"
+                "          source_path: respMsg.data.fields.recycleOrderId\n"
+                "    flow:\n"
+                "      - aiAction: 调用下单接口\n"
+            ),
+            "source_type": "manual",
+        },
+    )
+    assert script_response.status_code == 201
+    script_id = script_response.json()["id"]
+
+    scene_response = client.post(
+        "/api/scenes",
+        json={"name": "业务失败场景", "description": "", "source_type": "manual"},
+    )
+    assert scene_response.status_code == 201
+    scene_id = scene_response.json()["id"]
+
+    bind_response = client.post(f"/api/scenes/{scene_id}/scripts", json={"script_id": script_id})
+    assert bind_response.status_code == 201
+    item_response = client.post(
+        f"/api/scenes/{scene_id}/task-items",
+        json={"script_id": script_id, "task_index": 0},
+    )
+    assert item_response.status_code == 201
+
+    class DummyResponse:
+        def __init__(self):
+            self.status_code = 200
+            self.text = '{"respMsg":"{\\"code\\":-111,\\"errorMsg\\":\\"请选择上门时间\\",\\"raw\\":false}"}'
+            self.headers = {"content-type": "application/json"}
+            self.request = SimpleNamespace(url="https://example.test/orders")
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"respMsg": '{"code":-111,"errorMsg":"请选择上门时间","raw":false}'}
+
+    class DummyClient:
+        def __init__(self, timeout: float, follow_redirects: bool = False):
+            self.timeout = timeout
+            self.follow_redirects = follow_redirects
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def request(self, **kwargs):
+            return DummyResponse()
+
+    monkeypatch.setattr("app.services.http_executor.httpx.Client", DummyClient)
+
+    execute_response = client.post(f"/api/scenes/{scene_id}/execute")
+    assert execute_response.status_code == 200
+    payload = execute_response.json()
+    assert payload["success"] is False
+    assert payload["detail"]["task_results"][0]["error"] == "接口业务失败：请选择上门时间"
+
+
+def test_execute_scene_reports_missing_runtime_variables(monkeypatch) -> None:
+    client = _build_test_client()
+
+    script_response = client.post(
+        "/api/scripts",
+        json={
+            "name": "缺变量脚本",
+            "content": (
+                "interface:\n"
+                "  method: POST\n"
+                "  url: https://example.test/orders\n"
+                "  contentType: multipart/form-data\n"
+                "  headers:\n"
+                "    Cookie: ${cookie}\n"
+                "  params:\n"
+                "    uid: ${uid}\n"
+                "    addressId: ${addressId}\n"
+                "    appointmentTime: ${appointmentTime}\n"
+                "tasks:\n"
+                "  - name: 下单\n"
+                "    flow:\n"
+                "      - aiAction: 调用下单接口\n"
+            ),
+            "source_type": "manual",
+        },
+    )
+    assert script_response.status_code == 201
+    script_id = script_response.json()["id"]
+
+    scene_response = client.post(
+        "/api/scenes",
+        json={"name": "缺变量场景", "description": "", "source_type": "manual"},
+    )
+    assert scene_response.status_code == 201
+    scene_id = scene_response.json()["id"]
+
+    bind_response = client.post(f"/api/scenes/{scene_id}/scripts", json={"script_id": script_id})
+    assert bind_response.status_code == 201
+    item_response = client.post(
+        f"/api/scenes/{scene_id}/task-items",
+        json={"script_id": script_id, "task_index": 0},
+    )
+    assert item_response.status_code == 201
+
+    monkeypatch.setattr("app.services.http_executor.settings.getresult_cookie", None)
+    monkeypatch.setattr("app.services.http_executor.settings.getresult_uid", None)
+    monkeypatch.setattr("app.services.http_executor.settings.getresult_address_id", None)
+    monkeypatch.setattr("app.services.http_executor.settings.getresult_appointment_time", None)
+
+    execute_response = client.post(f"/api/scenes/{scene_id}/execute")
+    assert execute_response.status_code == 200
+    payload = execute_response.json()
+    assert payload["success"] is False
+    assert payload["detail"]["task_results"][0]["error"] == "缺少执行变量：addressId, appointmentTime, cookie, uid"
+
+
+def test_execute_scene_supports_indexed_input_binding_paths(monkeypatch) -> None:
+    client = _build_test_client()
+
+    script_response = client.post(
+        "/api/scripts",
+        json={
+            "name": "数组路径脚本",
+            "content": (
+                "tasks:\n"
+                "  - name: 下单\n"
+                "    interface:\n"
+                "      method: POST\n"
+                "      url: https://example.test/orders\n"
+                "      contentType: application/json\n"
+                "    sceneVariables:\n"
+                "      outputs:\n"
+                "        - name: recycleOrderId\n"
+                "          source_path: body.data.fields.recycleOrderId\n"
+                "    flow:\n"
+                "      - aiAction: 调用下单接口\n"
+                "  - name: 分配\n"
+                "    interface:\n"
+                "      method: POST\n"
+                "      url: https://example.test/assign\n"
+                "      contentType: application/json\n"
+                "      body:\n"
+                "        params:\n"
+                "          - key: engineerId\n"
+                "            value: 5\n"
+                "          - key: orderNo\n"
+                "            value: ''\n"
+                "    sceneVariables:\n"
+                "      inputs:\n"
+                "        - target_path: interface.body.params[1].value\n"
+                "          expression: ${recycleOrderId}\n"
+                "    flow:\n"
+                "      - aiAction: 调用分配接口\n"
+            ),
+            "source_type": "manual",
+        },
+    )
+    assert script_response.status_code == 201
+    script_id = script_response.json()["id"]
+
+    scene_response = client.post(
+        "/api/scenes",
+        json={"name": "数组路径场景", "description": "", "source_type": "manual"},
+    )
+    assert scene_response.status_code == 201
+    scene_id = scene_response.json()["id"]
+
+    bind_response = client.post(f"/api/scenes/{scene_id}/scripts", json={"script_id": script_id})
+    assert bind_response.status_code == 201
+    first_item = client.post(f"/api/scenes/{scene_id}/task-items", json={"script_id": script_id, "task_index": 0})
+    second_item = client.post(f"/api/scenes/{scene_id}/task-items", json={"script_id": script_id, "task_index": 1})
+    assert first_item.status_code == 201
+    assert second_item.status_code == 201
+
+    requests: list[dict] = []
+
+    class DummyResponse:
+        def __init__(self, payload: dict, url: str):
+            self.status_code = 200
+            self._payload = payload
+            self.text = json.dumps(payload)
+            self.headers = {"content-type": "application/json"}
+            self.request = SimpleNamespace(url=url)
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return self._payload
+
+    class DummyClient:
+        def __init__(self, timeout: float, follow_redirects: bool = False):
+            self.timeout = timeout
+            self.follow_redirects = follow_redirects
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def request(self, **kwargs):
+            requests.append(kwargs)
+            if kwargs["url"].endswith("/orders"):
+                return DummyResponse({"data": {"fields": {"recycleOrderId": "RID-002"}}}, kwargs["url"])
+            return DummyResponse({"ok": True}, kwargs["url"])
+
+    monkeypatch.setattr("app.services.http_executor.httpx.Client", DummyClient)
+
+    execute_response = client.post(f"/api/scenes/{scene_id}/execute")
+    assert execute_response.status_code == 200
+    assert execute_response.json()["success"] is True
+    assert requests[1]["json"]["params"][1]["value"] == "RID-002"
+
+
+def test_execute_scene_reads_runtime_defaults_from_settings(monkeypatch) -> None:
+    client = _build_test_client()
+
+    script_response = client.post(
+        "/api/scripts",
+        json={
+            "name": "默认变量脚本",
+            "content": (
+                "interface:\n"
+                "  method: POST\n"
+                "  url: https://example.test/orders\n"
+                "  contentType: multipart/form-data\n"
+                "  headers:\n"
+                "    Cookie: ${cookie}\n"
+                "  params:\n"
+                "    uid: ${uid}\n"
+                "    addressId: ${addressId}\n"
+                "    appointmentTime: ${appointmentTime}\n"
+                "tasks:\n"
+                "  - name: 下单\n"
+                "    sceneVariables:\n"
+                "      outputs:\n"
+                "        - name: recycleOrderId\n"
+                "          source_path: body.data.fields.recycleOrderId\n"
+                "    flow:\n"
+                "      - aiAction: 调用下单接口\n"
+            ),
+            "source_type": "manual",
+        },
+    )
+    assert script_response.status_code == 201
+    script_id = script_response.json()["id"]
+
+    scene_response = client.post(
+        "/api/scenes",
+        json={"name": "默认变量场景", "description": "", "source_type": "manual"},
+    )
+    assert scene_response.status_code == 201
+    scene_id = scene_response.json()["id"]
+
+    bind_response = client.post(f"/api/scenes/{scene_id}/scripts", json={"script_id": script_id})
+    assert bind_response.status_code == 201
+    item_response = client.post(
+        f"/api/scenes/{scene_id}/task-items",
+        json={"script_id": script_id, "task_index": 0},
+    )
+    assert item_response.status_code == 201
+
+    monkeypatch.setattr("app.services.http_executor.settings.getresult_cookie", "cookie-001")
+    monkeypatch.setattr("app.services.http_executor.settings.getresult_uid", "uid-001")
+    monkeypatch.setattr("app.services.http_executor.settings.getresult_address_id", "address-001")
+    monkeypatch.setattr("app.services.http_executor.settings.getresult_appointment_time", "2026-04-07 21:00:00-22:00:00")
+
+    requests: list[dict] = []
+
+    class DummyResponse:
+        def __init__(self):
+            self.status_code = 200
+            self.text = '{"data":{"fields":{"recycleOrderId":"RID-003"}}}'
+            self.headers = {"content-type": "application/json"}
+            self.request = SimpleNamespace(url="https://example.test/orders")
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"data": {"fields": {"recycleOrderId": "RID-003"}}}
+
+    class DummyClient:
+        def __init__(self, timeout: float, follow_redirects: bool = False):
+            self.timeout = timeout
+            self.follow_redirects = follow_redirects
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def request(self, **kwargs):
+            requests.append(kwargs)
+            return DummyResponse()
+
+    monkeypatch.setattr("app.services.http_executor.httpx.Client", DummyClient)
+
+    execute_response = client.post(f"/api/scenes/{scene_id}/execute")
+    assert execute_response.status_code == 200
+    payload = execute_response.json()
+    assert payload["success"] is True
+    assert payload["outputs"]["recycleOrderId"] == "RID-003"
+    assert requests[0]["headers"]["Cookie"] == "cookie-001"
+    assert requests[0]["files"][0][1][1] == "uid-001"
+    assert requests[0]["files"][1][1][1] == "address-001"
+    assert requests[0]["files"][2][1][1] == "2026-04-07 21:00:00-22:00:00"
+
+
+def test_execute_scene_supports_escaped_variable_placeholders(monkeypatch) -> None:
+    client = _build_test_client()
+
+    script_response = client.post(
+        "/api/scripts",
+        json={
+            "name": "转义变量脚本",
+            "content": (
+                "interface:\n"
+                "  method: POST\n"
+                "  url: https://example.test/orders\n"
+                "  contentType: multipart/form-data\n"
+                "  headers:\n"
+                "    Cookie: \\${cookie}\n"
+                "  params:\n"
+                "    uid: \\${uid}\n"
+                "tasks:\n"
+                "  - name: 下单\n"
+                "    sceneVariables:\n"
+                "      outputs:\n"
+                "        - name: recycleOrderId\n"
+                "          source_path: body.data.fields.recycleOrderId\n"
+                "    flow:\n"
+                "      - aiAction: 调用下单接口\n"
+            ),
+            "source_type": "manual",
+        },
+    )
+    assert script_response.status_code == 201
+    script_id = script_response.json()["id"]
+
+    scene_response = client.post(
+        "/api/scenes",
+        json={"name": "转义变量场景", "description": "", "source_type": "manual"},
+    )
+    assert scene_response.status_code == 201
+    scene_id = scene_response.json()["id"]
+
+    bind_response = client.post(f"/api/scenes/{scene_id}/scripts", json={"script_id": script_id})
+    assert bind_response.status_code == 201
+    item_response = client.post(
+        f"/api/scenes/{scene_id}/task-items",
+        json={"script_id": script_id, "task_index": 0},
+    )
+    assert item_response.status_code == 201
+
+    monkeypatch.setattr("app.services.http_executor.settings.getresult_cookie", "cookie-escaped")
+    monkeypatch.setattr("app.services.http_executor.settings.getresult_uid", "uid-escaped")
+
+    requests: list[dict] = []
+
+    class DummyResponse:
+        def __init__(self):
+            self.status_code = 200
+            self.text = '{"data":{"fields":{"recycleOrderId":"RID-004"}}}'
+            self.headers = {"content-type": "application/json"}
+            self.request = SimpleNamespace(url="https://example.test/orders")
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict:
+            return {"data": {"fields": {"recycleOrderId": "RID-004"}}}
+
+    class DummyClient:
+        def __init__(self, timeout: float, follow_redirects: bool = False):
+            self.timeout = timeout
+            self.follow_redirects = follow_redirects
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def request(self, **kwargs):
+            requests.append(kwargs)
+            return DummyResponse()
+
+    monkeypatch.setattr("app.services.http_executor.httpx.Client", DummyClient)
+
+    execute_response = client.post(f"/api/scenes/{scene_id}/execute")
+    assert execute_response.status_code == 200
+    payload = execute_response.json()
+    assert payload["success"] is True
+    assert requests[0]["headers"]["Cookie"] == "cookie-escaped"
+    assert requests[0]["files"][0][1][1] == "uid-escaped"

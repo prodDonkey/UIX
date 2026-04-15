@@ -8,10 +8,7 @@
         </div>
         <div class="actions">
           <el-button @click="goBack">返回列表</el-button>
-          <el-button @click="showGenerateDialog = true">AI生成</el-button>
-          <el-button @click="validate">校验</el-button>
           <el-button type="primary" @click="save">保存</el-button>
-          <el-button type="success" :loading="running" @click="execute">执行</el-button>
         </div>
       </div>
     </template>
@@ -23,7 +20,6 @@
       <el-form-item label="来源">
         <el-select v-model="sourceType" style="width: 220px">
           <el-option label="手动" value="manual" />
-          <el-option label="AI生成" value="ai" />
         </el-select>
       </el-form-item>
       <el-form-item label="被场景引用">
@@ -43,20 +39,6 @@
     </el-form>
 
     <YamlEditor v-model="content" />
-
-    <el-alert
-      v-if="validateMessage"
-      :title="validateMessage"
-      :type="validateOk ? 'success' : 'error'"
-      show-icon
-      class="alert"
-    />
-
-    <AiGeneratePanel
-      :visible="showGenerateDialog"
-      @close="showGenerateDialog = false"
-      @generated="onYamlGenerated"
-    />
   </el-card>
 </template>
 
@@ -65,9 +47,7 @@ import { ElMessage } from 'element-plus';
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import { runApi } from '../api/runs';
 import { scriptApi } from '../api/scripts';
-import AiGeneratePanel from '../components/AiGeneratePanel.vue';
 import YamlEditor from '../components/YamlEditor.vue';
 
 const route = useRoute();
@@ -78,10 +58,6 @@ const name = ref('');
 const sourceType = ref('manual');
 const content = ref('');
 const sceneReferences = ref<Array<{ id: number; name: string }>>([]);
-const validateMessage = ref('');
-const validateOk = ref(false);
-const running = ref(false);
-const showGenerateDialog = ref(false);
 
 onMounted(async () => {
   if (Number.isNaN(scriptId.value) || scriptId.value <= 0) {
@@ -105,44 +81,12 @@ async function save() {
   ElMessage.success('保存成功');
 }
 
-async function validate() {
-  const result = await scriptApi.validate(scriptId.value, content.value);
-  validateOk.value = result.valid;
-  validateMessage.value = result.valid
-    ? 'YAML 校验通过'
-    : `校验失败：${result.message ?? 'unknown error'}${result.line ? ` (line ${result.line})` : ''}`;
-}
-
-async function execute() {
-  if (!content.value.trim()) {
-    ElMessage.warning('YAML 内容不能为空');
-    return;
-  }
-
-  running.value = true;
-  try {
-    const run = await runApi.create(scriptId.value);
-    ElMessage.success(`任务已创建 #${run.id}`);
-    await router.push({ name: 'run-detail', params: { id: run.id } });
-  } catch (error) {
-    ElMessage.error('创建任务失败');
-    throw error;
-  } finally {
-    running.value = false;
-  }
-}
-
 async function goBack() {
   await router.replace({ name: 'scripts-list' });
 }
 
 function goScene(sceneId: number) {
   router.push({ name: 'scene-detail', params: { id: sceneId } });
-}
-
-function onYamlGenerated(yaml: string) {
-  content.value = yaml;
-  sourceType.value = 'ai';
 }
 </script>
 
@@ -170,8 +114,5 @@ function onYamlGenerated(yaml: string) {
 }
 .scene-tag {
   cursor: pointer;
-}
-.alert {
-  margin-top: 12px;
 }
 </style>
