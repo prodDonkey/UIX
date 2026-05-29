@@ -15,7 +15,8 @@ export function createServer() {
 
   app.register(cors, {
     origin: true,
-    credentials: true
+    credentials: true,
+    methods: ["GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"]
   });
 
   app.get("/", async () => ({

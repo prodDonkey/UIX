@@ -390,7 +390,15 @@ function raiseForBusinessError(responsePayload: Record<string, unknown>) {
   const text = String(responsePayload.text ?? "");
   const parsedRespMsg = parseRespMsg(body);
 
-  if (url.includes("zzsso.zhuanspirit.com/login") || text.includes("zzsso.zhuanspirit.com/login")) {
+  // 兼容 curl 回退分支：有些 SSO 302 最终只返回登录页 HTML，Response.url 可能拿不到。
+  if (
+    url.includes("zzsso.zhuanspirit.com/login") ||
+    url.includes("zzsso.zhuanspirit.com/user/login") ||
+    text.includes("zzsso.zhuanspirit.com/login") ||
+    text.includes("zzsso.zhuanspirit.com/user/login") ||
+    text.includes("转转统一登录平台") ||
+    text.includes("common/unify_login/")
+  ) {
     throw new HttpExecutionError("接口调用失败：登录态已失效，需要重新登录后刷新 Cookie");
   }
 

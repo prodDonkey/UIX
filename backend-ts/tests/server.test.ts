@@ -22,3 +22,26 @@ test("health route 返回迁移状态", async () => {
     await app.close();
   }
 });
+
+test("cors 预检放行脚本更新方法", async () => {
+  process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://test:test@127.0.0.1:3306/test";
+  const { createServer } = await import("../src/server.js");
+  const app = createServer();
+  try {
+    const response = await app.inject({
+      method: "OPTIONS",
+      url: "/api/scripts/58",
+      headers: {
+        origin: "http://localhost:5173",
+        "access-control-request-method": "PUT",
+        "access-control-request-headers": "content-type"
+      }
+    });
+    assert.equal(response.statusCode, 204);
+    assert.equal(response.headers["access-control-allow-origin"], "http://localhost:5173");
+    assert.match(String(response.headers["access-control-allow-methods"]), /PUT/);
+    assert.match(String(response.headers["access-control-allow-methods"]), /DELETE/);
+  } finally {
+    await app.close();
+  }
+});

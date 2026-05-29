@@ -134,6 +134,55 @@ test("executeSceneHttpTasks 在 Cookie 失效时返回明确错误", async () =>
   }
 });
 
+test("executeSceneHttpTasks 在返回登录页 HTML 时返回明确错误", async () => {
+  process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://test:test@127.0.0.1:3306/test";
+  const { executeSceneHttpTasks } = await import("../src/services/http-executor.js");
+  const fetchMock = mock.method(globalThis, "fetch", async () => {
+    return new Response(
+      `<!DOCTYPE html>
+      <html lang="en">
+        <head>
+          <title>转转统一登录平台</title>
+          <link rel="stylesheet" href="//s1.zhuanstatic.com/common/unify_login/main.css" />
+        </head>
+        <body></body>
+      </html>`,
+      {
+        status: 200,
+        headers: {
+          "content-type": "text/html; charset=utf-8"
+        }
+      }
+    );
+  });
+
+  try {
+    const result = await executeSceneHttpTasks({
+      taskSnapshots: [
+        dumpTaskSnapshot({
+          name: "下单",
+          flow: [],
+          interface: {
+            method: "POST",
+            url: "https://example.com/api/basicdata/getresult",
+            contentType: "application/json",
+            body: {}
+          },
+          sceneVariables: {
+            outputs: [{ name: "recycleOrderId", source_path: "respMsg.data.fields.recycleOrderId" }]
+          }
+        })
+      ],
+      timeoutSec: 5
+    });
+
+    assert.equal(result.success, false);
+    assert.equal(result.task_results[0]?.error, "接口调用失败：登录态已失效，需要重新登录后刷新 Cookie");
+  } finally {
+    fetchMock.mock.restore();
+  }
+});
+
 test("executeSceneHttpTasks 在接口业务失败时返回明确错误", async () => {
   process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://test:test@127.0.0.1:3306/test";
   const { executeSceneHttpTasks } = await import("../src/services/http-executor.js");
