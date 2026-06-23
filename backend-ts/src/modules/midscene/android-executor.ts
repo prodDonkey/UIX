@@ -1,7 +1,19 @@
 import { agentFromAdbDevice } from "@midscene/android";
+import { existsSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import YAML from "yaml";
 
 import type { SceneExecutionResult } from "./types.js";
+
+const MIDSCENE_REPORT_DIR = join(process.cwd(), "midscene_run", "report");
+
+// 列出报告目录下的 html 文件名集合，目录不存在时返回空集
+function listReportFiles(): Set<string> {
+  if (!existsSync(MIDSCENE_REPORT_DIR)) {
+    return new Set();
+  }
+  return new Set(readdirSync(MIDSCENE_REPORT_DIR).filter((name) => name.endsWith(".html")));
+}
 
 export class AndroidExecutionError extends Error {}
 
@@ -30,14 +42,18 @@ export async function executeSceneAndroidYaml(
   const createAgent = deps.createAgent ?? ((nextDeviceId?: string) => agentFromAdbDevice(nextDeviceId));
 
   let agent: AndroidYamlAgent | null = null;
+  const reportsBefore = listReportFiles();
   try {
     agent = await createAgent(deviceId);
     const execution = await agent.runYaml(params.yamlContent);
     const outputs = isRecord(execution.result) ? execution.result : {};
+    // 采集本次执行新增的 Midscene HTML 报告，供上层（skill）定位
+    const reportsAfter = listReportFiles();
+    const newReports = [...reportsAfter].filter((name) => !reportsBefore.has(name));
     return {
       success: true,
       message: "场景执行完成",
-      outputs,
+      outputs: { ...outputs, report_files: newReports },
       task_results: tasks.map((task) => ({
         task_name: String(task.name ?? ""),
         ok: true

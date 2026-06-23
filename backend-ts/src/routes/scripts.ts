@@ -1,10 +1,14 @@
 import type { FastifyInstance } from "fastify";
 
+import { env } from "../config.js";
 import { prisma } from "../db/prisma.js";
 import { badRequest, notFound, sendError } from "../lib/errors.js";
 import { serializeDate } from "../lib/serializers.js";
+import { AndroidExecutionError, executeCompiledScene } from "../modules/midscene/index.js";
 import {
+  compileSceneScript,
   dumpTaskSnapshot,
+  extractScriptEnv,
   parseScriptTasks,
   SceneCompileError
 } from "../services/scene-compiler.js";
@@ -240,6 +244,58 @@ export async function registerScriptRoutes(app: FastifyInstance): Promise<void> 
         })
       );
     } catch (error) {
+      return sendError(reply, error);
+    }
+  });
+
+  // 单脚本直接执行：内存编译脚本为 YAML 后调 Midscene 执行，不创建临时 scene
+  app.post("/api/scripts/:scriptId/execute", async (request, reply) => {
+    try {
+      const scriptId = Number((request.params as { scriptId: string }).scriptId);
+      const script = await prisma.script.findUnique({ where: { id: scriptId } });
+      if (!script) {
+        notFound("Script not found");
+      }
+      // 解析脚本内容为环境段 + task 快照，再合成可执行 YAML
+      const scriptEnv = extractScriptEnv(script.content);
+      // 纯 UI app 脚本（无平台段、无 http interface 配置）默认按安卓执行，自动补 android 段
+      const hasPlatformEnv = ["android", "ios", "web", "computer"].some(
+        (key) => scriptEnv[key] !== undefined
+      );
+      const hasHttpInterface = /^\s*interface\s*:/m.test(script.content);
+      if (!hasPlatformEnv && !hasHttpInterface) {
+        scriptEnv.android = scriptEnv.android ?? {};
+      }
+      const tasks = parseScriptTasks(script.content);
+      const taskSnapshots = tasks.map((item) => dumpTaskSnapshot(item.task));
+      const compiledYaml = compileSceneScript(scriptEnv, taskSnapshots);
+
+      const execution = await executeCompiledScene({
+        compiledYaml,
+        taskSnapshots,
+        httpTimeoutSec: env.SCENE_HTTP_TIMEOUT_SEC,
+        defaultAndroidDeviceId: env.MIDSCENE_ANDROID_DEVICE_ID
+      });
+
+      return {
+        script_id: script.id,
+        script_name: script.name,
+        task_count: tasks.length,
+        success: Boolean(execution.success),
+        message: String(execution.message),
+        outputs: execution.outputs,
+        detail: {
+          task_results: execution.task_results,
+          result: execution.result ?? execution.outputs
+        }
+      };
+    } catch (error) {
+      if (error instanceof SceneCompileError) {
+        return reply.code(400).send({ detail: error.message });
+      }
+      if (error instanceof AndroidExecutionError) {
+        badRequest(error.message);
+      }
       return sendError(reply, error);
     }
   });
