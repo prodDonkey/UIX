@@ -15,8 +15,9 @@ services:
     environment:
       HOST: "0.0.0.0"
       PORT: "8001"
-      # 网络 adb 真机地址,例如 10.238.15.91:5555;为空则跳过 adb connect
-      ANDROID_ADB_ADDR: "${ANDROID_ADB_ADDR:-}"
+      # 设备选择遵循 Midscene 机制(脚本 android.deviceId > MIDSCENE_ANDROID_DEVICE_ID > 自动选)。
+      # 云真机:先占用设备拿到 connectCmd,再 docker compose exec backend-ts adb connect <addr>。
+      MIDSCENE_ANDROID_DEVICE_ID: "${MIDSCENE_ANDROID_DEVICE_ID:-}"
     ports:
       - "8001:8001"
     restart: unless-stopped

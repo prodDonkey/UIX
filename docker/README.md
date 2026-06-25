@@ -29,12 +29,13 @@
 Compose 会自动读取根目录 `.env`。除已有变量外，按需在 `.env` 追加：
 
 ```bash
-# 网络 adb 真机地址（backend-ts 启动时 adb connect，并作为默认 deviceId）
-ANDROID_ADB_ADDR=10.238.15.91:5555
-
 # 一般留空：前端走相对路径 /api 由 nginx 反代。
 # 仅当前端与后端不同域名/不经本 nginx 时才填后端可公开访问地址。
 FRONTEND_API_BASE_URL=
+
+# 可选：默认 Android 设备 ID。留空时由 Midscene 自动选当前 adb 已连接的设备，
+# 或在脚本 YAML 的 android.deviceId 中指定（优先级最高）。
+MIDSCENE_ANDROID_DEVICE_ID=
 ```
 
 > `VITE_ANDROID_PLAYGROUND_URL` 已在 `.env` 中，会注入到前端运行时配置。
@@ -60,12 +61,21 @@ docker compose logs -f frontend
 - 前端：`http://<部署机IP>:8080`
 - 后端(直连，调试用)：`http://<部署机IP>:8001/api/...`
 
-## 验证 adb 是否连上
+## 连接云真机设备
+
+设备来自云真机/设备池（cloud-real-device），运行时按需占用，不写死地址：
 
 ```bash
+# 1. 用 cloud-real-device 占用一台设备，拿到 connectCmd（形如 adb connect 10.238.15.91:30000）
+# 2. 在容器内连接该设备
+docker compose exec backend-ts adb connect 10.238.15.91:30000
+# 3. 确认已连上
 docker compose exec backend-ts adb devices
-# 期望看到 <host:port>  device
+#    期望看到 10.238.15.91:30000   device
 ```
+
+> 设备选择优先级（见 `backend-ts/src/modules/midscene/android-executor.ts`）：
+> 脚本 YAML 的 `android.deviceId` > `MIDSCENE_ANDROID_DEVICE_ID` > Midscene 自动选当前已连接设备。
 
 ## 常用操作
 
@@ -82,7 +92,7 @@ docker compose up -d --build          # 重建并滚动更新
   在容器启动时由 `envsubst` 写入 `app-config.js`（前端读 `window.__APP_CONFIG__`）。
 - **Prisma**：构建阶段 `prisma generate` 生成 Client 并随 `node_modules` 进入运行镜像。
   改了 `prisma/schema.prisma` 需重建 backend-ts 镜像。
-- **adb**：`backend-ts` 镜像装了 `android-tools-adb`，entrypoint 在启动时
-  `adb connect $ANDROID_ADB_ADDR`。若是 USB 直连真机（非网络 adb），容器方案不适用，
-  后端需留在宿主机运行。
+- **adb**：`backend-ts` 镜像装了 `android-tools-adb`，entrypoint 仅启动 adb server。
+  设备为云真机/设备池，按「连接云真机设备」一节运行时 `adb connect`，不在镜像里写死地址。
+  设备地址（如 `10.238.15.91:30000`）是设备池占用后返回的网络 adb 地址，容器可直接连。
 - **耗时任务**：nginx 对 `/api` 的 `proxy_read/send_timeout` 已放宽到 600s。
