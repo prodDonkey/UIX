@@ -22,8 +22,17 @@ type AndroidYamlAgent = {
   destroy: () => Promise<void>;
 };
 
+// Midscene agentFromAdbDevice 的远程 adb / adb 路径选项
+// 字段含义见 @midscene/core AndroidDeviceOpt：remoteAdbHost/Port 指向远程 adb server，
+// androidAdbPath 指定 adb 可执行文件路径
+type AndroidAgentOpt = {
+  remoteAdbHost?: string;
+  remoteAdbPort?: number;
+  androidAdbPath?: string;
+};
+
 type AndroidExecutorDeps = {
-  createAgent?: (deviceId?: string) => Promise<AndroidYamlAgent>;
+  createAgent?: (deviceId?: string, opts?: AndroidAgentOpt) => Promise<AndroidYamlAgent>;
 };
 
 export async function executeSceneAndroidYaml(
@@ -39,12 +48,20 @@ export async function executeSceneAndroidYaml(
   const androidConfig = parsed.android;
   const yamlDeviceId = typeof androidConfig.deviceId === "string" ? androidConfig.deviceId.trim() : "";
   const deviceId = yamlDeviceId || params.defaultDeviceId || undefined;
-  const createAgent = deps.createAgent ?? ((nextDeviceId?: string) => agentFromAdbDevice(nextDeviceId));
+  // 从 YAML android 块解析远程 adb 选项，透传给 agentFromAdbDevice
+  const agentOpt = parseAndroidAgentOpt(androidConfig);
+  const createAgent =
+    deps.createAgent ?? ((nextDeviceId?: string, nextOpt?: AndroidAgentOpt) => agentFromAdbDevice(nextDeviceId, nextOpt));
 
   let agent: AndroidYamlAgent | null = null;
   const reportsBefore = listReportFiles();
   try {
-    agent = await createAgent(deviceId);
+    // 关键节点日志：记录本次连接的设备与远程 adb 配置，便于排障（不含敏感信息）
+    console.log(
+      `[android-executor] 连接设备 deviceId=${deviceId ?? "(自动选择)"} ` +
+        `remoteAdbHost=${agentOpt.remoteAdbHost ?? "-"} remoteAdbPort=${agentOpt.remoteAdbPort ?? "-"}`
+    );
+    agent = await createAgent(deviceId, agentOpt);
     const execution = await agent.runYaml(params.yamlContent);
     const outputs = isRecord(execution.result) ? execution.result : {};
     // 采集本次执行新增的 Midscene HTML 报告，供上层（skill）定位
@@ -132,4 +149,28 @@ function parseAndroidYaml(content: string): { android: Record<string, unknown>; 
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// 从 YAML android 块解析远程 adb 选项，仅保留合法值，缺省或非法时忽略以保持原有行为
+function parseAndroidAgentOpt(androidConfig: Record<string, unknown>): AndroidAgentOpt {
+  const opt: AndroidAgentOpt = {};
+
+  const remoteAdbHost = androidConfig.remoteAdbHost;
+  if (typeof remoteAdbHost === "string" && remoteAdbHost.trim()) {
+    opt.remoteAdbHost = remoteAdbHost.trim();
+  }
+
+  // 端口兼容数字与字符串（YAML 可能写成 "30000"），仅接受有效端口范围
+  const rawPort = androidConfig.remoteAdbPort;
+  const port = typeof rawPort === "number" ? rawPort : typeof rawPort === "string" ? Number(rawPort.trim()) : NaN;
+  if (Number.isInteger(port) && port > 0 && port <= 65535) {
+    opt.remoteAdbPort = port;
+  }
+
+  const androidAdbPath = androidConfig.androidAdbPath;
+  if (typeof androidAdbPath === "string" && androidAdbPath.trim()) {
+    opt.androidAdbPath = androidAdbPath.trim();
+  }
+
+  return opt;
 }

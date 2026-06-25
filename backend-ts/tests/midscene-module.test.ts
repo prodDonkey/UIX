@@ -75,11 +75,61 @@ tasks:
 
     assert.deepEqual(calls, ["emulator-5554", "destroyed"]);
     assert.equal(result.success, true);
-    assert.deepEqual(result.outputs, { 0: "ok", 1: "done" });
+    // outputs 含 Midscene 结果，并附带本次执行新增的报告文件列表
+    assert.deepEqual(result.outputs, { 0: "ok", 1: "done", report_files: [] });
     assert.deepEqual(
       result.task_results.map((item) => item.task_name),
       ["前往服务", "点击预约点签到"]
     );
+  } finally {
+    restore();
+  }
+});
+
+test("executeSceneAndroidYaml 透传 YAML 中的远程 adb 配置且 deviceId 优先于默认值", async () => {
+  const restore = withMidsceneEnv();
+  try {
+    let capturedDeviceId: string | undefined;
+    let capturedOpt: { remoteAdbHost?: string; remoteAdbPort?: number; androidAdbPath?: string } | undefined;
+
+    const result = await executeSceneAndroidYaml(
+      {
+        // remoteAdbPort 写成字符串，验证兼容数字/字符串
+        yamlContent: `android:
+  deviceId: "10.238.15.91:30000"
+  remoteAdbHost: "10.238.15.91"
+  remoteAdbPort: "5037"
+  androidAdbPath: "/usr/bin/adb"
+tasks:
+  - name: 远程设备任务
+    flow:
+      - aiAction: 点击按钮
+`,
+        defaultDeviceId: "emulator-5554"
+      },
+      {
+        createAgent: async (deviceId, opt) => {
+          capturedDeviceId = deviceId;
+          capturedOpt = opt;
+          return {
+            async runYaml() {
+              return { result: { 0: "ok" } };
+            },
+            async destroy() {}
+          };
+        }
+      }
+    );
+
+    // YAML deviceId 应优先于 defaultDeviceId
+    assert.equal(capturedDeviceId, "10.238.15.91:30000");
+    // 远程 adb 选项被解析并透传（端口字符串转为数字）
+    assert.deepEqual(capturedOpt, {
+      remoteAdbHost: "10.238.15.91",
+      remoteAdbPort: 5037,
+      androidAdbPath: "/usr/bin/adb"
+    });
+    assert.equal(result.success, true);
   } finally {
     restore();
   }
