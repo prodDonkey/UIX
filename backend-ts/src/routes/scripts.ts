@@ -4,7 +4,7 @@ import { env } from "../config.js";
 import { prisma } from "../db/prisma.js";
 import { badRequest, notFound, sendError } from "../lib/errors.js";
 import { serializeDate } from "../lib/serializers.js";
-import { AndroidExecutionError, executeCompiledScene } from "../modules/midscene/index.js";
+import { AndroidExecutionError, ensureAdbConnected, executeCompiledScene } from "../modules/midscene/index.js";
 import {
   compileSceneScript,
   dumpTaskSnapshot,
@@ -12,7 +12,7 @@ import {
   parseScriptTasks,
   SceneCompileError
 } from "../services/scene-compiler.js";
-import { scriptCreateSchema, scriptUpdateSchema } from "../schemas.js";
+import { scriptCreateSchema, scriptExecuteSchema, scriptUpdateSchema } from "../schemas.js";
 
 function serializeScriptRead(script: {
   id: number;
@@ -252,6 +252,8 @@ export async function registerScriptRoutes(app: FastifyInstance): Promise<void> 
   app.post("/api/scripts/:scriptId/execute", async (request, reply) => {
     try {
       const scriptId = Number((request.params as { scriptId: string }).scriptId);
+      // 解析可选请求体：deviceId 用于云端/云真机场景显式指定目标设备
+      const { deviceId: bodyDeviceId } = scriptExecuteSchema.parse(request.body ?? {});
       const script = await prisma.script.findUnique({ where: { id: scriptId } });
       if (!script) {
         notFound("Script not found");
@@ -270,11 +272,16 @@ export async function registerScriptRoutes(app: FastifyInstance): Promise<void> 
       const taskSnapshots = tasks.map((item) => dumpTaskSnapshot(item.task));
       const compiledYaml = compileSceneScript(scriptEnv, taskSnapshots);
 
+      // 最终设备：请求体 deviceId 优先于 env 默认值（YAML 内 android.deviceId 仍由 executor 内部最优先）
+      const targetDeviceId = bodyDeviceId ?? env.MIDSCENE_ANDROID_DEVICE_ID;
+      // 云真机网络地址需先 adb connect，Midscene 才能选中；失败不阻断，由 executor 兜底报错
+      await ensureAdbConnected(targetDeviceId);
+
       const execution = await executeCompiledScene({
         compiledYaml,
         taskSnapshots,
         httpTimeoutSec: env.SCENE_HTTP_TIMEOUT_SEC,
-        defaultAndroidDeviceId: env.MIDSCENE_ANDROID_DEVICE_ID
+        defaultAndroidDeviceId: targetDeviceId
       });
 
       return {

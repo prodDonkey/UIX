@@ -14,6 +14,13 @@ export const scriptUpdateSchema = z.object({
   source_type: z.string().optional()
 });
 
+// 执行脚本请求体：deviceId 可选，用于云端/云真机场景显式指定目标安卓设备
+// （形如 host:port 的网络地址，服务端会在执行前负责 adb connect）。
+// 不传则沿用 env.MIDSCENE_ANDROID_DEVICE_ID 或由 Midscene 自动选择，向后兼容。
+export const scriptExecuteSchema = z.object({
+  deviceId: nonEmptyString.optional()
+});
+
 export const sceneCreateSchema = z.object({
   name: nonEmptyString.max(128),
   description: z.string().default(""),
@@ -64,6 +71,7 @@ export const sceneTaskItemUpdateSchema = z.object({
 
 export type ScriptCreateInput = z.infer<typeof scriptCreateSchema>;
 export type ScriptUpdateInput = z.infer<typeof scriptUpdateSchema>;
+export type ScriptExecuteInput = z.infer<typeof scriptExecuteSchema>;
 export type SceneCreateInput = z.infer<typeof sceneCreateSchema>;
 export type SceneUpdateInput = z.infer<typeof sceneUpdateSchema>;
 export type SceneScriptCreateInput = z.infer<typeof sceneScriptCreateSchema>;
