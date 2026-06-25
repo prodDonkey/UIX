@@ -1,0 +1,39 @@
+# UIX 生产部署编排
+# 用法见 docker/README.md
+name: uix
+
+services:
+  backend-ts:
+    build:
+      context: ./backend-ts
+      dockerfile: Dockerfile
+    image: uix-backend-ts:latest
+    # .env 提供 DATABASE_URL / LLM_* / MIDSCENE_* 等(config.ts 会自动把
+    # mysql+pymysql:// 前缀转成 mysql://)
+    env_file:
+      - .env
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "8001"
+      # 网络 adb 真机地址,例如 10.238.15.91:5555;为空则跳过 adb connect
+      ANDROID_ADB_ADDR: "${ANDROID_ADB_ADDR:-}"
+    ports:
+      - "8001:8001"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: uix-frontend:latest
+    environment:
+      # 留空 => 前端走相对路径 /api,由本容器 nginx 反代到 backend-ts(同域名免 CORS)
+      API_BASE_URL: "${FRONTEND_API_BASE_URL:-}"
+      ANDROID_PLAYGROUND_URL: "${VITE_ANDROID_PLAYGROUND_URL:-}"
+      # nginx 反代上游
+      BACKEND_UPSTREAM: "backend-ts:8001"
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend-ts
+    restart: unless-stopped

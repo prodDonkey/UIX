@@ -1,0 +1,7 @@
+node_modules
+dist
+.vite
+midscene_run
+*.log
+.env
+.env.*

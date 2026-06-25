@@ -1,0 +1,31 @@
+server {
+    listen 80;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # 运行时配置不缓存,保证改环境变量重启后即时生效
+    location = /app-config.js {
+        add_header Cache-Control "no-store";
+    }
+
+    # API 反向代理到 backend-ts(同域名,免 CORS)
+    # BACKEND_UPSTREAM 由环境变量注入,默认 backend-ts:8001
+    location /api/ {
+        proxy_pass http://${BACKEND_UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # UI 自动化任务可能耗时较长,放宽超时
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+    }
+
+    # 单页应用回退
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
