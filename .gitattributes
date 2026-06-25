@@ -1,0 +1,5 @@
+# 强制 shell 脚本与容器相关文件使用 LF 行尾,避免 Windows CRLF 导致容器内 shebang 失败
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.template text eol=lf
+nginx.conf.template text eol=lf

@@ -1,9 +1,11 @@
 # syntax=docker/dockerfile:1
 
 # ---- build stage ----
-FROM node:20-alpine AS build
+FROM node:20-bookworm-slim AS build
 WORKDIR /app
-RUN corepack enable
+# 锁定 pnpm 9(匹配 pnpm-lock.yaml lockfileVersion 9.0)。
+# corepack 默认会拉最新 pnpm,在 Node 20 上会崩(ERR_UNKNOWN_BUILTIN_MODULE)。
+RUN corepack enable && corepack prepare pnpm@9.15.9 --activate
 
 # 依赖安装(利用缓存)
 COPY package.json pnpm-lock.yaml ./
@@ -31,6 +33,8 @@ ENV NGINX_ENVSUBST_FILTER="BACKEND_UPSTREAM"
 
 # 生成运行时 app-config.js(放入官方镜像的启动钩子目录,nginx 启动前执行)
 COPY docker-entrypoint.sh /docker-entrypoint.d/40-app-config.sh
-RUN chmod +x /docker-entrypoint.d/40-app-config.sh
+# 去除可能的 Windows CRLF 行尾,避免 sh 解析失败
+RUN sed -i 's/\r$//' /docker-entrypoint.d/40-app-config.sh \
+ && chmod +x /docker-entrypoint.d/40-app-config.sh
 
 EXPOSE 80

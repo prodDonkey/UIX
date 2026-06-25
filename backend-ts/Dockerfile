@@ -27,7 +27,7 @@ ENV NODE_ENV=production
 
 # @midscene/android 通过 adb 连接网络真机,需要 adb 客户端
 RUN apt-get update \
- && apt-get install -y --no-install-recommends android-tools-adb \
+ && apt-get install -y --no-install-recommends android-tools-adb openssl \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app/node_modules ./node_modules
@@ -36,7 +36,9 @@ COPY --from=build /app/prisma ./prisma
 COPY package.json ./
 
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+# 去除可能的 Windows CRLF 行尾,避免 shebang 变成 'bash\r' 导致启动失败
+RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh \
+ && chmod +x /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 8001
 ENTRYPOINT ["docker-entrypoint.sh"]

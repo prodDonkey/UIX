@@ -19,7 +19,8 @@ services:
       # 云真机:先占用设备拿到 connectCmd,再 docker compose exec backend-ts adb connect <addr>。
       MIDSCENE_ANDROID_DEVICE_ID: "${MIDSCENE_ANDROID_DEVICE_ID:-}"
     ports:
-      - "8001:8001"
+      # 宿主 18001 -> 容器 8001(8001 在部署机上已被 algo-proxy 占用)
+      - "18001:8001"
     restart: unless-stopped
 
   frontend:
