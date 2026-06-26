@@ -5,7 +5,6 @@
       <div class="nav-actions">
         <el-button :type="isScenesPage ? 'primary' : 'default'" plain @click="goScenes">场景列表</el-button>
         <el-button :type="isScriptsPage ? 'primary' : 'default'" plain @click="goScripts">脚本列表</el-button>
-        <el-button :type="isRunsPage ? 'primary' : 'default'" plain @click="goRuns">运行列表</el-button>
       </div>
     </el-header>
     <el-main class="main">
@@ -22,7 +21,6 @@ const router = useRouter();
 const route = useRoute();
 const isScenesPage = computed(() => route.path.startsWith('/scenes'));
 const isScriptsPage = computed(() => route.path.startsWith('/scripts'));
-const isRunsPage = computed(() => route.path.startsWith('/runs') || route.path.startsWith('/run/'));
 
 function goScenes() {
   router.push({ name: 'scenes-list' });
@@ -30,10 +28,6 @@ function goScenes() {
 
 function goScripts() {
   router.push({ name: 'scripts-list' });
-}
-
-function goRuns() {
-  router.push({ name: 'runs-list' });
 }
 </script>
 

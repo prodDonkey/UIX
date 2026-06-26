@@ -1,8 +1,21 @@
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, Field
 
 from app.schemas.script import ScriptRead
+
+
+class SceneTaskOutputVariable(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    source_path: str = Field(default="", max_length=512)
+    description: str = Field(default="", max_length=255)
+
+
+class SceneTaskInputBinding(BaseModel):
+    target_path: str = Field(min_length=1, max_length=512)
+    expression: str = Field(min_length=1, max_length=512)
+    description: str = Field(default="", max_length=255)
 
 
 class SceneBase(BaseModel):
@@ -69,6 +82,8 @@ class SceneTaskItemCreate(BaseModel):
 class SceneTaskItemUpdate(BaseModel):
     sort_order: int | None = Field(default=None, ge=1)
     remark: str | None = None
+    input_bindings: list[SceneTaskInputBinding] | None = None
+    output_variables: list[SceneTaskOutputVariable] | None = None
 
 
 class SceneTaskItemRead(BaseModel):
@@ -84,6 +99,8 @@ class SceneTaskItemRead(BaseModel):
     created_at: datetime
     sync_status: str = "current"
     sync_message: str = ""
+    input_bindings: list[SceneTaskInputBinding] = []
+    output_variables: list[SceneTaskOutputVariable] = []
     script: ScriptRead
 
 
@@ -98,6 +115,17 @@ class SceneCompiledScriptRead(BaseModel):
     script_count: int
     task_count: int
     yaml: str
+
+
+class SceneExecuteResponse(BaseModel):
+    scene_id: int
+    scene_name: str
+    script_count: int
+    task_count: int
+    success: bool
+    message: str
+    outputs: dict[str, Any] = {}
+    detail: dict[str, Any] | str | None = None
 
 
 class SceneDetailRead(SceneRead):

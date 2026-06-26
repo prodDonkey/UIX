@@ -1,6 +1,7 @@
 node_modules
 dist
+.vite
+midscene_run
+*.log
 .env
 .env.*
-npm-debug.log*
-pnpm-lock.yaml

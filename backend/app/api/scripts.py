@@ -12,12 +12,9 @@ from app.schemas.script import (
     ScriptRead,
     ScriptSceneReference,
     ScriptUpdate,
-    ScriptValidateRequest,
-    ScriptValidateResponse,
 )
 from app.schemas.scene import ScriptTaskRead
 from app.services.scene_compiler import dump_task_snapshot, parse_script_tasks
-from app.services.yaml_validator import validate_yaml_content
 
 router = APIRouter(prefix="/api/scripts", tags=["scripts"])
 
@@ -198,22 +195,4 @@ def copy_script(script_id: int, db: Session = Depends(get_db)) -> ScriptRead:
             "scene_count": 0,
             "scenes": [],
         }
-    )
-
-
-@router.post("/{script_id}/validate", response_model=ScriptValidateResponse)
-def validate_script(
-    script_id: int,
-    payload: ScriptValidateRequest,
-    db: Session = Depends(get_db),
-) -> ScriptValidateResponse:
-    if not db.get(Script, script_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Script not found")
-
-    result = validate_yaml_content(payload.content)
-    return ScriptValidateResponse(
-        valid=result.valid,
-        line=result.line,
-        column=result.column,
-        message=result.message,
     )

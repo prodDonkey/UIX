@@ -1,79 +1,41 @@
+# UIX 生产部署编排
+# 用法见 docker/README.md
+name: uix
+
 services:
-  backend:
+  backend-ts:
     build:
-      context: ./backend
+      context: ./backend-ts
+      dockerfile: Dockerfile
+    image: uix-backend-ts:latest
+    # .env 提供 DATABASE_URL / LLM_* / MIDSCENE_* 等(config.ts 会自动把
+    # mysql+pymysql:// 前缀转成 mysql://)
+    env_file:
+      - .env
     environment:
-      APP_ENV: docker
-      DATABASE_URL: ${DATABASE_URL:-mysql+pymysql://root:password@host.docker.internal:3306/ui_demo?charset=utf8mb4}
-      MIDSCENE_BASE_URL: ${MIDSCENE_BASE_URL:-http://host.docker.internal:5800}
-      MIDSCENE_TIMEOUT_SEC: ${MIDSCENE_TIMEOUT_SEC:-10}
-      MIDSCENE_STATUS_POLL_INTERVAL_MS: ${MIDSCENE_STATUS_POLL_INTERVAL_MS:-2000}
-      REPORT_ROOT_DIR: /shared/midscene_run/report
-      RUN_SCRIPTS_DIR: /app/runtime/scripts
-      LLM_BASE_URL: ${LLM_BASE_URL:-}
-      LLM_API_KEY: ${LLM_API_KEY:-}
-      LLM_MODEL_NAME: ${LLM_MODEL_NAME:-}
-      LLM_GENERATION_SYSTEM_PROMPT_FILE: /app/prompts/yaml_system_prompt.txt
-      MIDSCENE_MODEL_BASE_URL: ${MIDSCENE_MODEL_BASE_URL:-}
-      MIDSCENE_MODEL_API_KEY: ${MIDSCENE_MODEL_API_KEY:-}
-      MIDSCENE_MODEL_NAME: ${MIDSCENE_MODEL_NAME:-}
-      MIDSCENE_MODEL_FAMILY: ${MIDSCENE_MODEL_FAMILY:-}
+      HOST: "0.0.0.0"
+      PORT: "8001"
+      # 设备选择遵循 Midscene 机制(脚本 android.deviceId > MIDSCENE_ANDROID_DEVICE_ID > 自动选)。
+      # 云真机:先占用设备拿到 connectCmd,再 docker compose exec backend-ts adb connect <addr>。
+      MIDSCENE_ANDROID_DEVICE_ID: "${MIDSCENE_ANDROID_DEVICE_ID:-}"
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
-    volumes:
-      - backend_data:/app/data
-      - backend_runtime:/app/runtime
-      - midscene_report:/shared/midscene_run
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
+      # 宿主 18001 -> 容器 8001(8001 在部署机上已被 algo-proxy 占用)
+      - "18001:8001"
+    restart: unless-stopped
 
   frontend:
     build:
       context: ./frontend
+      dockerfile: Dockerfile
+    image: uix-frontend:latest
     environment:
-      API_BASE_URL: ${API_BASE_URL:-/api}
-      ANDROID_PLAYGROUND_URL: ${ANDROID_PLAYGROUND_URL:-http://localhost:5800}
+      # 留空 => 前端走相对路径 /api,由本容器 nginx 反代到 backend-ts(同域名免 CORS)
+      API_BASE_URL: "${FRONTEND_API_BASE_URL:-}"
+      ANDROID_PLAYGROUND_URL: "${VITE_ANDROID_PLAYGROUND_URL:-}"
+      # nginx 反代上游
+      BACKEND_UPSTREAM: "backend-ts:8001"
+    ports:
+      - "8080:80"
     depends_on:
-      backend:
-        condition: service_healthy
-    ports:
-      - "${FRONTEND_PORT:-5173}:80"
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/health"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 5s
-
-  runner:
-    build:
-      context: ./runner-service
-    environment:
-      RUNNER_HOST: 0.0.0.0
-      RUNNER_PORT: ${RUNNER_PORT:-8100}
-      MIDSCENE_RUN_DIR: /app/midscene_run
-    ports:
-      - "${RUNNER_PORT:-8100}:8100"
-    volumes:
-      - midscene_report:/app/midscene_run
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    profiles:
-      - runner
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8100/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
-      interval: 15s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-
-volumes:
-  backend_data:
-  backend_runtime:
-  midscene_report:
+      - backend-ts
+    restart: unless-stopped
